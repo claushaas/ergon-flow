@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add -A)",
+      "Bash(git commit -m \"Initial commit: Set up ergon-flow monorepo with pnpm and Biome\")"
+    ]
+  }
+}

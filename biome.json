@@ -1,0 +1,81 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "on",
+				"useSortedAttributes": "on",
+				"useSortedKeys": "on",
+				"useSortedProperties": "on"
+			}
+		}
+	},
+	"files": {
+		"ignoreUnknown": true,
+		"includes": [
+			"**/*.js",
+			"**/*.ts",
+			"**/*.tsx",
+			"**/*.css",
+			"**/*.scss",
+			"**/*.html",
+			"**/*.json",
+			"**/*.md",
+			"!**/supabase/functions",
+			"!**/node_modules",
+			"!**/dist",
+			"!**/build",
+			"!**/coverage",
+			"!**/ios",
+			"!**/android",
+			"!**/.git/",
+			"!**/.vscode",
+			"!**/.react-router",
+			"!**/worker-configuration.d.ts",
+			"!**/*.d.ts",
+			"!**/*.spec.ts",
+			"!seed.ts",
+			"!**/.github"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "single"
+		}
+	},
+	"linter": {
+		"domains": {
+			"react": "all"
+		},
+		"enabled": true,
+		"rules": {
+			"performance": {
+				"noDynamicNamespaceImportAccess": "off"
+			},
+			"recommended": true
+		}
+	},
+	"overrides": [
+		{
+			"includes": [
+				"**/*.stories.*"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"useComponentExportOnlyModules": "off"
+					}
+				}
+			}
+		}
+	],
+	"vcs": {
+		"clientKind": "git",
+		"enabled": true,
+		"useIgnoreFile": true
+	}
+}

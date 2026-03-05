@@ -1,0 +1,10 @@
+{
+  "name": "@stoa/engine",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo engine tests placeholder"
+  }
+}

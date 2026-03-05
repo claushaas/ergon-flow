@@ -1,0 +1,13 @@
+{
+  "name": "@stoa/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "stoa": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "node src/main.ts",
+    "test": "echo cli tests placeholder"
+  }
+}
