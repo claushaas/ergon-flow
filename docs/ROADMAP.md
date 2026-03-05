@@ -241,7 +241,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
   - `analysis` / `plan` / `text` / `json` (as configured)
 - Handle retry policy (record attempt)
 
-### Phase E3 — exec executor
+### Phase E3 — exec executor - ✅
 
 - Execute local command (controlled env)
 - Capture stdout/stderr/exit code
