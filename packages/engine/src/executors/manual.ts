@@ -22,7 +22,6 @@ export class ManualExecutor implements Executor<ManualStepDefinition> {
 					type: 'manual_waiting',
 				},
 			],
-			outputs: payload,
 			status: 'waiting_manual',
 		};
 	}
