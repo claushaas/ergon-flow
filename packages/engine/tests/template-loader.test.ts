@@ -322,7 +322,7 @@ describe('template interpolation (C3)', () => {
 		expect(rendered[0]?.payload.prompt).toContain('Implement parser');
 		expect(rendered[1]?.payload.command).toContain("'/tmp/repo'");
 		expect(rendered[1]?.payload.command).toContain("'42'");
-		expect(rendered[2]?.payload.message).toBe('Done Refactor module');
+		expect(rendered[2]?.payload.message).toBe('Done "Refactor module"');
 	});
 
 	it('escapes interpolated values for exec shell commands', () => {
@@ -358,8 +358,7 @@ describe('template interpolation (C3)', () => {
 			'prompt',
 		);
 
-		expect(value).toContain('`\\`\\`text`\\`\\`');
-		expect(value).not.toContain('{{ artifacts.plan }}');
+		expect(value).toContain('Analyze: "```text``` {{ artifacts.plan }}"');
 	});
 
 	it('fails interpolation on unsupported source and unknown references', () => {

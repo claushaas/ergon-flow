@@ -349,8 +349,11 @@ function validateStepRequiredFields(
 		}
 		case 'manual':
 			return;
-		default:
+		default: {
+			const exhaustive: never = step;
+			void exhaustive;
 			return;
+		}
 	}
 }
 
@@ -559,11 +562,8 @@ function escapeShellArgument(value: string): string {
 }
 
 function sanitizePromptValue(value: string): string {
-	return value
-		.replaceAll('\u0000', '')
-		.replaceAll('```', '`\\`\\`')
-		.replaceAll('{{', '\\{{')
-		.replaceAll('}}', '\\}}');
+	const normalized = value.replaceAll('\u0000', '');
+	return JSON.stringify(normalized);
 }
 
 function formatInterpolationValue(
@@ -640,8 +640,11 @@ export function renderStepRequestPayload(
 			return {
 				message: interpolateTemplateString(step.message, context, 'prompt'),
 			};
-		default:
+		default: {
+			const payloadLessKind: 'artifact' | 'condition' | 'manual' = step.kind;
+			void payloadLessKind;
 			return {};
+		}
 	}
 }
 

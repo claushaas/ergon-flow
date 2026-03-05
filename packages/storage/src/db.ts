@@ -39,6 +39,9 @@ export function runInTransaction<T>(
 	options: TransactionOptions = {},
 ): T {
 	const mode = options.mode ?? 'DEFERRED';
+	if (mode !== 'DEFERRED' && mode !== 'EXCLUSIVE' && mode !== 'IMMEDIATE') {
+		throw new Error(`Invalid transaction mode: ${String(mode)}`);
+	}
 	db.exec(`BEGIN ${mode};`);
 	try {
 		const result = callback();

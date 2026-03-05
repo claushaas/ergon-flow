@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openStorageDb } from '../src/db.js';
+import { openStorageDb, runInTransaction } from '../src/db.js';
 
 const tempDirs: string[] = [];
 
@@ -178,6 +178,23 @@ describe('openStorageDb', () => {
 				now,
 			),
 		).toThrow();
+
+		db.close();
+	});
+
+	it('rejects invalid runtime transaction mode values', () => {
+		const dbPath = createTempDbPath();
+		const db = openStorageDb({ dbPath });
+
+		expect(() =>
+			runInTransaction(
+				db,
+				() => {
+					// no-op
+				},
+				{ mode: 'MALICIOUS; DROP TABLE workflows;' as never },
+			),
+		).toThrow('Invalid transaction mode');
 
 		db.close();
 	});
