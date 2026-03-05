@@ -196,7 +196,7 @@ Deliverable: CLI can `template list` and validate templates.
 
 ---
 
-## Scope D — Execution Clients (adapters)
+## Scope D — Execution Clients (adapters) - ✅
 
 ### Phase D1 — Client registry - ✅
 
@@ -211,7 +211,7 @@ Deliverable: CLI can `template list` and validate templates.
   - optional JSON mode if needed
 - Normalize into a common `AgentResult` structure
 
-### Phase D3 — Optional adapters (as time permits)
+### Phase D3 — Optional adapters (as time permits) - ✅
 
 - `ollama` (same interface)
 - `openclaw` (spawn `openclaw agent ...`)
