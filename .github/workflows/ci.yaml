@@ -5,12 +5,19 @@ on:
     branches:
       - main
       - develop
-  pull_request:
+  pull_request_target:
+    branches:
+      - main
+      - develop
     types:
       - opened
       - reopened
       - synchronize
       - ready_for_review
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
