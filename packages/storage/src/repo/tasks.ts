@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { runInTransaction } from '../db.js';
 import { assertRow, optionalJson, toJson } from './utils.js';
 
 export type WorkflowRunStatus =
@@ -101,6 +102,27 @@ export interface UpdateStepRunStatusOptions {
 	request?: unknown;
 	response?: unknown;
 	startedAt?: string | null;
+}
+
+export interface RunFailureOptions {
+	errorCode?: string | null;
+	errorDetail?: unknown;
+	errorMessage?: string | null;
+	finishedAt?: string;
+}
+
+export interface RunResultOptions {
+	finishedAt?: string;
+	result?: unknown;
+}
+
+function addMilliseconds(
+	isoTimestamp: string,
+	leaseDurationMs: number,
+): string {
+	return new Date(
+		Date.parse(isoTimestamp) + Math.max(0, Math.trunc(leaseDurationMs)),
+	).toISOString();
 }
 
 export function createRun(
@@ -288,4 +310,174 @@ export function updateStepRunStatus(
 		.get(...params);
 
 	return (row as unknown as StepRunRow | undefined) ?? null;
+}
+
+export function claimNextRun(
+	db: DatabaseSync,
+	workerId: string,
+	leaseDurationMs: number,
+): WorkflowRunRow | null {
+	return runInTransaction(
+		db,
+		() => {
+			const now = new Date().toISOString();
+			const leaseUntil = addMilliseconds(now, leaseDurationMs);
+
+			const candidate = db
+				.prepare(
+					`SELECT id
+					 FROM workflow_runs
+					 WHERE status = 'queued'
+					   AND (lease_until IS NULL OR lease_until < ?)
+					 ORDER BY priority DESC, scheduled_at ASC
+					 LIMIT 1;`,
+				)
+				.get(now) as { id?: string } | undefined;
+			if (!candidate?.id) {
+				return null;
+			}
+
+			const claimed = db
+				.prepare(
+					`UPDATE workflow_runs
+					 SET status = 'running',
+					     claimed_by = ?,
+					     lease_until = ?,
+					     started_at = COALESCE(started_at, ?),
+					     updated_at = ?
+					 WHERE id = ?
+					   AND status = 'queued'
+					   AND (lease_until IS NULL OR lease_until < ?)
+					 RETURNING *;`,
+				)
+				.get(workerId, leaseUntil, now, now, candidate.id, now);
+
+			return (claimed as unknown as WorkflowRunRow | undefined) ?? null;
+		},
+		{ mode: 'IMMEDIATE' },
+	);
+}
+
+export function renewLease(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	leaseDurationMs: number,
+): WorkflowRunRow | null {
+	const now = new Date().toISOString();
+	const leaseUntil = addMilliseconds(now, leaseDurationMs);
+
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET lease_until = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND status = 'running'
+			 RETURNING *;`,
+		)
+		.get(leaseUntil, now, runId, workerId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function markRunSucceeded(
+	db: DatabaseSync,
+	runId: string,
+	options: RunResultOptions = {},
+): WorkflowRunRow | null {
+	const now = options.finishedAt ?? new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'succeeded',
+			     result_json = ?,
+			     error_code = NULL,
+			     error_message = NULL,
+			     error_detail_json = NULL,
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     finished_at = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			 RETURNING *;`,
+		)
+		.get(optionalJson(options.result), now, now, runId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function markRunFailed(
+	db: DatabaseSync,
+	runId: string,
+	options: RunFailureOptions = {},
+): WorkflowRunRow | null {
+	const now = options.finishedAt ?? new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'failed',
+			     error_code = ?,
+			     error_message = ?,
+			     error_detail_json = ?,
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     finished_at = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			 RETURNING *;`,
+		)
+		.get(
+			options.errorCode ?? null,
+			options.errorMessage ?? null,
+			optionalJson(options.errorDetail),
+			now,
+			now,
+			runId,
+		);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function markRunWaitingManual(
+	db: DatabaseSync,
+	runId: string,
+): WorkflowRunRow | null {
+	const now = new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'waiting_manual',
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     updated_at = ?
+			 WHERE id = ?
+			 RETURNING *;`,
+		)
+		.get(now, runId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function markRunCanceled(
+	db: DatabaseSync,
+	runId: string,
+	options: RunResultOptions = {},
+): WorkflowRunRow | null {
+	const now = options.finishedAt ?? new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'canceled',
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     finished_at = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			 RETURNING *;`,
+		)
+		.get(now, now, runId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
