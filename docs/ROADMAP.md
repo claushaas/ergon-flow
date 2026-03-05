@@ -158,7 +158,7 @@ Deliverable: foundations compile + unit tests run.
   - `updateStepRunStatus(step_run_id, status, ...)`
   - `insertArtifact(run_id, step_run_id, ...)`
 
-### Phase B3 — Claim/lease primitives
+### Phase B3 — Claim/lease primitives - ✅
 
 - Implement atomic claim:
   - `claimNextRun(worker_id, lease_duration)`
