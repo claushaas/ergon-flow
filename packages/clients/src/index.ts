@@ -608,7 +608,6 @@ export class ClientRegistry {
 		if (!client) {
 			throw new Error(`No client registered for provider "${provider}"`);
 		}
-		validateProviderConfig(provider, this.configs[provider]);
 		return client;
 	}
 
