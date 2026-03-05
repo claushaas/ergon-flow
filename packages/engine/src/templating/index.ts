@@ -156,7 +156,11 @@ function normalizeSteps(rawSteps: unknown): StepDefinition[] {
 	return rawSteps
 		.map((rawStep) => {
 			const step = asRecord(rawStep);
-			if (!step) {
+			if (
+				!step ||
+				typeof step.id !== 'string' ||
+				typeof step.kind !== 'string'
+			) {
 				return null;
 			}
 

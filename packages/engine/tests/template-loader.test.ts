@@ -91,4 +91,23 @@ describe('template loader (C1)', () => {
 		expect(template.outputs).toEqual({});
 		expect(template.steps).toEqual([]);
 	});
+
+	it('filters malformed steps without id/kind string', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{ command: 'echo ok', id: 'ok.step', kind: 'exec' },
+				{ id: 'missing-kind' },
+				{ kind: 'exec' },
+				{ id: 42, kind: 'exec' },
+				'invalid-step',
+			],
+			workflow: { id: 'workflow.steps', version: 1 },
+		});
+
+		expect(template.steps).toHaveLength(1);
+		expect(template.steps[0]).toMatchObject({
+			id: 'ok.step',
+			kind: 'exec',
+		});
+	});
 });
