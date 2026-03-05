@@ -41,13 +41,15 @@ describe('ClientRegistry (D1)', () => {
 
 		registry.register(new StubClient('openrouter'));
 		expect(() => registry.register(new StubClient('openrouter'))).toThrow(
-			'Client already registered',
+			'Client already registered for provider "openrouter"',
 		);
 	});
 
 	it('fails when requesting an unregistered provider', () => {
 		const registry = new ClientRegistry();
-		expect(() => registry.get('codex')).toThrow('No client registered');
+		expect(() => registry.get('codex')).toThrow(
+			'No client registered for provider "codex"',
+		);
 	});
 
 	it('validates remote model provider config', () => {
@@ -63,6 +65,12 @@ describe('ClientRegistry (D1)', () => {
 			validateProviderConfig('openrouter', {
 				apiKey: 'test-key',
 				baseUrl: 'ssh://invalid',
+			} as never),
+		).toThrow('openrouter baseUrl must use the http or https protocol');
+		expect(() =>
+			validateProviderConfig('openrouter', {
+				apiKey: 'test-key',
+				baseUrl: 'not-a-url',
 			} as never),
 		).toThrow('openrouter baseUrl must be a valid http(s) URL');
 	});

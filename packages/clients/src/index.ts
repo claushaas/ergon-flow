@@ -47,13 +47,14 @@ function validateBaseUrl(baseUrl: unknown, provider: Provider): void {
 	if (!isNonEmptyString(baseUrl)) {
 		throw new Error(`${provider} baseUrl must be a non-empty string`);
 	}
+	let parsedUrl: URL;
 	try {
-		const parsedUrl = new URL(baseUrl);
-		if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-			throw new Error('unsupported protocol');
-		}
+		parsedUrl = new URL(baseUrl);
 	} catch {
 		throw new Error(`${provider} baseUrl must be a valid http(s) URL`);
+	}
+	if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+		throw new Error(`${provider} baseUrl must use the http or https protocol`);
 	}
 }
 
