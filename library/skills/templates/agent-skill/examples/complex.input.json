@@ -1,8 +1,0 @@
-{
-  "context": "Monorepo with 5 packages, React frontend, Node.js backend, shared utilities. Recent performance degradation reported in API endpoints.",
-  "instruction": "Perform a comprehensive system analysis and create an optimization plan",
-  "options": {
-    "detail_level": "detailed",
-    "format_preference": "code"
-  }
-}
