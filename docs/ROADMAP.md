@@ -87,7 +87,7 @@ Order rationale: every scope unlocks the next without backtracking.
 
 ---
 
-## Scope A — Repo skeleton and shared foundations
+## Scope A — Repo skeleton and shared foundations - ✅
 
 ### Phase A1 — Packages and boundaries - ✅
 
