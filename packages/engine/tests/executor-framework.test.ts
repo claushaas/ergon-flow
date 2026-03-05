@@ -78,6 +78,9 @@ describe('executor framework (E1)', () => {
 		});
 		expect(context.hasArtifact('analysis')).toBe(true);
 		expect(context.getArtifact('analysis')).toEqual({ summary: 'ready' });
+		expect(Object.isFrozen(context.artifacts)).toBe(true);
+		expect(Object.isFrozen(context.inputs)).toBe(true);
+		expect(Object.isFrozen(context.run)).toBe(true);
 		expect(() => context.getRequiredArtifact('missing')).toThrow(
 			'Artifact "missing" was not found in execution context',
 		);

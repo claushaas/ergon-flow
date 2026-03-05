@@ -193,6 +193,47 @@ describe('template validation (C2)', () => {
 		).toBe(true);
 	});
 
+	it('validates optional agent output configuration', () => {
+		const validTemplate = normalizeTemplate({
+			steps: [
+				{
+					id: 'review',
+					kind: 'agent',
+					output: { name: 'review', type: 'json' },
+					provider: 'openrouter',
+					prompt: 'Review changes',
+				},
+			],
+			workflow: { id: 'workflow.output', version: 1 },
+		});
+		const invalidTemplate = normalizeTemplate({
+			steps: [
+				{
+					id: 'review',
+					kind: 'agent',
+					output: { name: '', type: 'binary' },
+					provider: 'openrouter',
+					prompt: 'Review changes',
+				},
+			],
+			workflow: { id: 'workflow.output.invalid', version: 1 },
+		});
+
+		expect(validateTemplate(validTemplate).valid).toBe(true);
+		const invalidResult = validateTemplate(invalidTemplate);
+		expect(invalidResult.valid).toBe(false);
+		expect(
+			invalidResult.errors.some((error) =>
+				error.path.endsWith('.output.name'),
+			),
+		).toBe(true);
+		expect(
+			invalidResult.errors.some((error) =>
+				error.path.endsWith('.output.type'),
+			),
+		).toBe(true);
+	});
+
 	it('rejects circular dependencies across multiple steps', () => {
 		const template = normalizeTemplate({
 			steps: [

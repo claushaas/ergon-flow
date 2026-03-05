@@ -176,6 +176,49 @@ describe('AgentExecutor (E2)', () => {
 		]);
 	});
 
+	it('prefers explicit output configuration over hardcoded artifact conventions', async () => {
+		const executor = new AgentExecutor({
+			resolveClient: () =>
+				new StubClient(
+					'openrouter',
+					{
+						text: '{"pr_title":"Title","pr_body":"Body"}',
+					},
+					vi.fn(),
+				),
+		});
+		const step: AgentStepDefinition = {
+			id: 'review',
+			kind: 'agent',
+			output: {
+				name: 'review',
+				type: 'json',
+			},
+			provider: 'openrouter',
+			prompt: 'Summarize changes',
+		};
+		const context = createExecutionContext({
+			inputs: {},
+			run: {
+				attempt: 1,
+				runId: 'run_5',
+				stepIndex: 3,
+				workflowId: 'code.refactor',
+				workflowVersion: 1,
+			},
+		});
+
+		const result = await executor.execute(step, context);
+
+		expect(result.artifacts).toEqual([
+			{
+				name: 'review',
+				type: 'json',
+				value: { pr_body: 'Body', pr_title: 'Title' },
+			},
+		]);
+	});
+
 	it('fails when the agent step does not render a prompt', async () => {
 		const executor = new AgentExecutor({
 			resolveClient: () =>

@@ -52,7 +52,9 @@ export interface Executor<TStep extends StepDefinition = StepDefinition> {
 export function createExecutionContext(
 	options: CreateExecutionContextOptions,
 ): ExecutionContext {
-	const artifacts = { ...(options.artifacts ?? {}) };
+	const artifacts = Object.freeze({ ...(options.artifacts ?? {}) });
+	const inputs = Object.freeze({ ...options.inputs });
+	const run = Object.freeze({ ...options.run });
 
 	return {
 		artifacts,
@@ -68,8 +70,8 @@ export function createExecutionContext(
 		hasArtifact(name: string): boolean {
 			return name in artifacts;
 		},
-		inputs: { ...options.inputs },
-		run: { ...options.run },
+		inputs,
+		run,
 	};
 }
 
