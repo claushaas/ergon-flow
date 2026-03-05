@@ -254,7 +254,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
   - boolean over known values (inputs/artifacts)
 - Mark downstream steps as `skipped` when false
 
-### Phase E5 — manual executor
+### Phase E5 — manual executor - ✅
 
 - Transition run to `waiting_manual`
 - Persist event `manual_waiting`
