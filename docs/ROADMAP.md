@@ -178,7 +178,7 @@ Deliverable: a storage-only test can enqueue and claim a run safely with two sim
 - Load YAML templates from `/templates`
 - Normalize template structure (`workflow`, `inputs`, `steps`, `outputs`)
 
-### Phase C2 — Schema validation (static)
+### Phase C2 — Schema validation (static) - ✅
 
 - Validate required fields per `TEMPLATE_SPEC.md`
 - Validate step ids unique
