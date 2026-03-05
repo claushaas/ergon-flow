@@ -27,6 +27,11 @@ export interface StepStrategy {
 
 // ─── Step definitions (discriminated union by `kind`) ────────────────────────
 
+export interface AgentStepOutput {
+	name: string;
+	type: Extract<ArtifactType, 'analysis' | 'json' | 'plan' | 'text'>;
+}
+
 interface BaseStepDefinition {
 	depends_on?: string[];
 	description?: string;
@@ -40,6 +45,7 @@ export interface AgentStepDefinition extends BaseStepDefinition {
 	agent?: string;
 	kind: 'agent';
 	model?: string;
+	output?: AgentStepOutput;
 	prompt?: string;
 	provider: AgentProvider | ModelProvider;
 	strategy?: StepStrategy;

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type {
+	AgentStepOutput,
 	ArtifactDeclaration,
 	ArtifactType,
 	InputSpec,
@@ -18,6 +19,12 @@ const INPUT_TYPES: ReadonlySet<string> = new Set([
 	'number',
 	'object',
 	'string',
+]);
+const AGENT_OUTPUT_TYPES: ReadonlySet<ArtifactType> = new Set([
+	'analysis',
+	'json',
+	'plan',
+	'text',
 ]);
 
 const YAML_EXTENSIONS: ReadonlySet<string> = new Set(['.yaml', '.yml']);
@@ -205,10 +212,25 @@ function normalizeSteps(rawSteps: unknown): StepDefinition[] {
 
 			return {
 				...step,
+				output: normalizeAgentStepOutput(step.output),
 				depends_on: dependsOn,
 			} as StepDefinition;
 		})
 		.filter((step): step is StepDefinition => step !== null);
+}
+
+function normalizeAgentStepOutput(rawOutput: unknown): AgentStepOutput | undefined {
+	const output = asRecord(rawOutput);
+	if (!output) {
+		return undefined;
+	}
+	if (typeof output.name !== 'string' || typeof output.type !== 'string') {
+		return undefined;
+	}
+	return {
+		name: output.name,
+		type: output.type as AgentStepOutput['type'],
+	};
 }
 
 export function normalizeTemplate(rawTemplate: unknown): WorkflowTemplate {
@@ -290,6 +312,22 @@ function validateStepRequiredFields(
 					`${stepPath}.provider`,
 					`agent provider "${step.provider}" is not supported`,
 				);
+			}
+			if (step.output) {
+				if (!isNonEmptyString(step.output.name)) {
+					pushError(
+						errors,
+						`${stepPath}.output.name`,
+						'agent step output.name must be a non-empty string',
+					);
+				}
+				if (!AGENT_OUTPUT_TYPES.has(step.output.type)) {
+					pushError(
+						errors,
+						`${stepPath}.output.type`,
+						'agent step output.type must be one of: analysis, json, plan, text',
+					);
+				}
 			}
 			return;
 		}
