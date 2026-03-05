@@ -134,7 +134,7 @@ Deliverable: foundations compile + unit tests run.
 
 ---
 
-## Scope B — Storage (SQLite) and migration bootstrap
+## Scope B — Storage (SQLite) and migration bootstrap - ✅
 
 ### Phase B1 — SQLite bootstrap - ✅
 
