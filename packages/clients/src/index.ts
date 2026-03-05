@@ -1,3 +1,4 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import type {
 	AgentResult,
 	ChatMessage,
@@ -34,6 +35,29 @@ export interface OpenRouterClientOptions extends RemoteModelProviderConfig {
 	defaultModel?: string;
 	fetch?: typeof fetch;
 	siteUrl?: string;
+}
+
+export interface OllamaClientOptions extends OllamaProviderConfig {
+	defaultModel?: string;
+	fetch?: typeof fetch;
+}
+
+export interface CliSpawnResult {
+	code: number | null;
+	signal: NodeJS.Signals | null;
+	stderr: string;
+	stdout: string;
+}
+
+export type CliSpawn = (options: {
+	args: string[];
+	command: string;
+	env?: Record<string, string>;
+	input: string;
+}) => Promise<CliSpawnResult>;
+
+export interface CliClientOptions extends CliAgentProviderConfig {
+	spawn?: CliSpawn;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -119,39 +143,122 @@ function normalizeMessageContent(content: unknown): string {
 	return '';
 }
 
-function resolveMessages(request: ClientRequest): ChatMessage[] {
+function resolveMessages(
+	request: ClientRequest,
+	providerLabel: string,
+): ChatMessage[] {
 	if (request.messages && request.messages.length > 0) {
 		return request.messages;
 	}
 	if (isNonEmptyString(request.prompt)) {
 		return [{ content: request.prompt, role: 'user' }];
 	}
-	throw new Error('OpenRouter request must include a prompt or messages');
+	throw new Error(`${providerLabel} request must include a prompt or messages`);
 }
 
-function resolveTextResult(payload: unknown): string {
+function resolveModel(
+	request: ClientRequest,
+	defaultModel: string | undefined,
+	providerLabel: string,
+): string {
+	const model = request.model ?? defaultModel;
+	if (!isNonEmptyString(model)) {
+		throw new Error(`${providerLabel} request must include a model`);
+	}
+	return model;
+}
+
+function resolveChoiceMessageText(
+	payload: unknown,
+	providerLabel: string,
+): string {
 	if (!payload || typeof payload !== 'object') {
-		throw new Error('OpenRouter response must be a JSON object');
+		throw new Error(`${providerLabel} response must be a JSON object`);
 	}
 	const choices = (payload as { choices?: unknown }).choices;
 	if (!Array.isArray(choices) || choices.length === 0) {
-		throw new Error('OpenRouter response did not include any choices');
+		throw new Error(`${providerLabel} response did not include any choices`);
 	}
 	const firstChoice = choices[0];
 	if (!firstChoice || typeof firstChoice !== 'object') {
-		throw new Error('OpenRouter response choice is invalid');
+		throw new Error(`${providerLabel} response choice is invalid`);
 	}
 	const message = (firstChoice as { message?: unknown }).message;
 	if (!message || typeof message !== 'object') {
-		throw new Error('OpenRouter response did not include a message');
+		throw new Error(`${providerLabel} response did not include a message`);
 	}
 	const text = normalizeMessageContent(
 		(message as { content?: unknown }).content,
 	).trim();
 	if (!text) {
-		throw new Error('OpenRouter response message content is empty');
+		throw new Error(`${providerLabel} response message content is empty`);
 	}
 	return text;
+}
+
+function resolveOllamaText(payload: unknown): string {
+	if (!payload || typeof payload !== 'object') {
+		throw new Error('Ollama response must be a JSON object');
+	}
+	const message = (payload as { message?: unknown }).message;
+	if (!message || typeof message !== 'object') {
+		throw new Error('Ollama response did not include a message');
+	}
+	const text = normalizeMessageContent(
+		(message as { content?: unknown }).content,
+	).trim();
+	if (!text) {
+		throw new Error('Ollama response message content is empty');
+	}
+	return text;
+}
+
+function resolveCliInput(request: ClientRequest, providerLabel: string): string {
+	const messages = request.messages;
+	if (messages && messages.length > 0) {
+		return messages
+			.map((message) => `${message.role}: ${message.content}`)
+			.join('\n\n');
+	}
+	if (isNonEmptyString(request.prompt)) {
+		return request.prompt;
+	}
+	throw new Error(`${providerLabel} request must include a prompt or messages`);
+}
+
+async function defaultSpawn(options: {
+	args: string[];
+	command: string;
+	env?: Record<string, string>;
+	input: string;
+}): Promise<CliSpawnResult> {
+	return await new Promise<CliSpawnResult>((resolve, reject) => {
+		const child = nodeSpawn(options.command, options.args, {
+			env: options.env ? { ...process.env, ...options.env } : process.env,
+			stdio: 'pipe',
+		});
+		let stdout = '';
+		let stderr = '';
+
+		child.stdout.on('data', (chunk) => {
+			stdout += chunk.toString();
+		});
+		child.stderr.on('data', (chunk) => {
+			stderr += chunk.toString();
+		});
+		child.on('error', reject);
+		child.on('close', (code, signal) => {
+			resolve({
+				code,
+				signal,
+				stderr,
+				stdout,
+			});
+		});
+
+		child.stdin.write(options.input);
+		child.stdin.end();
+	});
 }
 
 export function validateProviderConfig(
@@ -204,14 +311,11 @@ export class OpenRouterModelClient implements ExecutionClient {
 	}
 
 	public async run(request: ClientRequest): Promise<AgentResult> {
-		const model = request.model ?? this.defaultModel;
-		if (!isNonEmptyString(model)) {
-			throw new Error('OpenRouter request must include a model');
-		}
+		const model = resolveModel(request, this.defaultModel, 'OpenRouter');
 
 		const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
 			body: JSON.stringify({
-				messages: resolveMessages(request),
+				messages: resolveMessages(request, 'OpenRouter'),
 				model,
 				...(request.json_mode
 					? { response_format: { type: 'json_object' } }
@@ -238,9 +342,175 @@ export class OpenRouterModelClient implements ExecutionClient {
 		const raw = await response.json();
 		return {
 			raw,
-			text: resolveTextResult(raw),
+			text: resolveChoiceMessageText(raw, 'OpenRouter'),
 		};
 	}
+}
+
+export class OllamaModelClient implements ExecutionClient {
+	public readonly provider = 'ollama' as const;
+	private readonly baseUrl: string;
+	private readonly defaultModel?: string;
+	private readonly fetchImpl: typeof fetch;
+
+	public constructor(options: OllamaClientOptions = {}) {
+		validateProviderConfig('ollama', options);
+		this.baseUrl = options.baseUrl ?? 'http://127.0.0.1:11434';
+		this.defaultModel = options.defaultModel;
+		this.fetchImpl = options.fetch ?? fetch;
+	}
+
+	public async run(request: ClientRequest): Promise<AgentResult> {
+		const model = resolveModel(request, this.defaultModel, 'Ollama');
+		const response = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
+			body: JSON.stringify({
+				format: request.json_mode ? 'json' : undefined,
+				messages: resolveMessages(request, 'Ollama'),
+				model,
+				stream: false,
+			}),
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			method: 'POST',
+		});
+
+		if (!response.ok) {
+			const detail = (await response.text()).trim();
+			throw new Error(
+				detail
+					? `Ollama request failed (${response.status}): ${detail}`
+					: `Ollama request failed (${response.status})`,
+			);
+		}
+
+		const raw = await response.json();
+		return {
+			raw,
+			text: resolveOllamaText(raw),
+		};
+	}
+}
+
+abstract class CliAgentClientBase implements ExecutionClient {
+	public abstract readonly provider: Provider;
+	private readonly args: string[];
+	private readonly command: string;
+	private readonly env?: Record<string, string>;
+	private readonly providerId: Provider;
+	private readonly spawnImpl: CliSpawn;
+
+	protected constructor(
+		provider: Provider,
+		defaultCommand: string,
+		defaultArgs: string[],
+		options: CliClientOptions = {},
+	) {
+		validateProviderConfig(provider, options);
+		this.providerId = provider;
+		this.command = options.command ?? defaultCommand;
+		this.args = options.args ?? defaultArgs;
+		this.env = options.env;
+		this.spawnImpl = options.spawn ?? defaultSpawn;
+	}
+
+	public async run(request: ClientRequest): Promise<AgentResult> {
+		const result = await this.spawnImpl({
+			args: this.args,
+			command: this.command,
+			env: this.env,
+			input: resolveCliInput(request, this.displayName),
+		});
+		if (result.code !== 0) {
+			const detail = result.stderr.trim() || result.stdout.trim();
+			throw new Error(
+				detail
+					? `${this.displayName} command failed (${String(result.code)}): ${detail}`
+					: `${this.displayName} command failed (${String(result.code)})`,
+			);
+		}
+		const text = result.stdout.trim();
+		if (!text) {
+			throw new Error(`${this.displayName} command produced empty output`);
+		}
+		return {
+			raw: result,
+			text,
+		};
+	}
+
+	protected get displayName(): string {
+		switch (this.providerId) {
+			case 'claude-code':
+				return 'Claude Code';
+			case 'codex':
+				return 'Codex';
+			case 'openclaw':
+				return 'OpenClaw';
+			default: {
+				return this.providerId;
+			}
+		}
+	}
+}
+
+export class CodexAgentClient extends CliAgentClientBase {
+	public readonly provider = 'codex' as const;
+
+	public constructor(options: CliClientOptions = {}) {
+		super('codex', 'codex', [], options);
+	}
+}
+
+export class ClaudeCodeAgentClient extends CliAgentClientBase {
+	public readonly provider = 'claude-code' as const;
+
+	public constructor(options: CliClientOptions = {}) {
+		super('claude-code', 'claude', [], options);
+	}
+}
+
+export class OpenClawAgentClient extends CliAgentClientBase {
+	public readonly provider = 'openclaw' as const;
+
+	public constructor(options: CliClientOptions = {}) {
+		super('openclaw', 'openclaw', ['agent'], options);
+	}
+}
+
+export function createDefaultClients(
+	configs: ProviderConfigMap = {},
+): ExecutionClient[] {
+	const clients: ExecutionClient[] = [];
+
+	if (configs.openrouter) {
+		clients.push(
+			new OpenRouterModelClient(configs.openrouter as OpenRouterClientOptions),
+		);
+	}
+	if (configs.ollama) {
+		clients.push(new OllamaModelClient(configs.ollama as OllamaClientOptions));
+	}
+	if (configs.codex) {
+		clients.push(new CodexAgentClient(configs.codex as CliClientOptions));
+	}
+	if (configs['claude-code']) {
+		clients.push(
+			new ClaudeCodeAgentClient(configs['claude-code'] as CliClientOptions),
+		);
+	}
+	if (configs.openclaw) {
+		clients.push(new OpenClawAgentClient(configs.openclaw as CliClientOptions));
+	}
+
+	return clients;
+}
+
+export function createClientRegistry(configs: ProviderConfigMap = {}): ClientRegistry {
+	return new ClientRegistry({
+		clients: createDefaultClients(configs),
+		configs,
+	});
 }
 
 export class ClientRegistry {
