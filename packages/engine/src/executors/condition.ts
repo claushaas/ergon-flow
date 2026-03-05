@@ -17,16 +17,13 @@ function coerceConditionValue(value: unknown): boolean {
 		if (normalized === 'true') {
 			return true;
 		}
-		if (
-			normalized === 'false' ||
-			normalized === 'null' ||
-			normalized === 'undefined'
-		) {
+		if (['false', 'null', 'undefined'].includes(normalized)) {
 			return false;
 		}
 		try {
 			return coerceConditionValue(JSON.parse(normalized));
 		} catch {
+			// A non-JSON string literal is treated as truthy by design.
 			return true;
 		}
 	}

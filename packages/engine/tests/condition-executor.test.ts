@@ -116,6 +116,32 @@ describe('ConditionExecutor (E4)', () => {
 		});
 	});
 
+	it('evaluates non-empty non-JSON string literals as truthy', async () => {
+		const executor = new ConditionExecutor();
+		const step: ConditionStepDefinition = {
+			expression: 'a random string',
+			id: 'string.literal',
+			kind: 'condition',
+		};
+		const context = createExecutionContext({
+			inputs: {},
+			run: {
+				attempt: 1,
+				runId: 'run_4',
+				stepIndex: 3,
+				workflowId: 'code.refactor',
+				workflowVersion: 1,
+			},
+		});
+
+		const result = await executor.execute(step, context);
+
+		expect(result.outputs).toEqual({
+			expression: 'a random string',
+			passed: true,
+		});
+	});
+
 	it('fails when interpolation references an unknown value', async () => {
 		const executor = new ConditionExecutor();
 		const step: ConditionStepDefinition = {
@@ -127,8 +153,8 @@ describe('ConditionExecutor (E4)', () => {
 			inputs: {},
 			run: {
 				attempt: 1,
-				runId: 'run_4',
-				stepIndex: 3,
+				runId: 'run_5',
+				stepIndex: 4,
 				workflowId: 'code.refactor',
 				workflowVersion: 1,
 			},
