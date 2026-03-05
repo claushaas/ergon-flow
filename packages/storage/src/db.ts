@@ -52,6 +52,9 @@ function runMigrations(db: DatabaseSync, migrationsDir: string): void {
 	const migrationFiles = readdirSync(migrationsDir)
 		.filter((entry) => /^\d+.*\.sql$/i.test(entry))
 		.sort((a, b) => a.localeCompare(b));
+	const insertMigration = db.prepare(
+		'INSERT INTO schema_migrations(name, applied_at) VALUES (?, ?);',
+	);
 
 	for (const migrationFile of migrationFiles) {
 		if (applied.has(migrationFile)) {
@@ -63,16 +66,24 @@ function runMigrations(db: DatabaseSync, migrationsDir: string): void {
 			continue;
 		}
 
-		db.exec('BEGIN;');
-		try {
+		runInTransaction(db, () => {
 			db.exec(sql);
-			db.prepare(
-				'INSERT INTO schema_migrations(name, applied_at) VALUES (?, ?);',
-			).run(migrationFile, new Date().toISOString());
-			db.exec('COMMIT;');
-		} catch (error) {
+			insertMigration.run(migrationFile, new Date().toISOString());
+		});
+	}
+}
+
+function runInTransaction(db: DatabaseSync, callback: () => void): void {
+	db.exec('BEGIN;');
+	try {
+		callback();
+		db.exec('COMMIT;');
+	} catch (error) {
+		try {
 			db.exec('ROLLBACK;');
-			throw error;
+		} catch {
+			// Keep the original failure as the primary error.
 		}
+		throw error;
 	}
 }

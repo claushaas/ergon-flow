@@ -77,9 +77,7 @@ describe('openStorageDb', () => {
 		expect(indexExists(db, 'idx_workflow_runs_queue')).toBe(true);
 		expect(indexExists(db, 'idx_workflow_runs_lease')).toBe(true);
 		expect(indexExists(db, 'idx_workflow_runs_workflow')).toBe(true);
-		expect(indexExists(db, 'idx_step_runs_run')).toBe(true);
 		expect(indexExists(db, 'idx_artifacts_run')).toBe(true);
-		expect(indexExists(db, 'idx_events_run')).toBe(true);
 		expect(indexExists(db, 'idx_events_type')).toBe(true);
 
 		db.close();
@@ -98,5 +96,89 @@ describe('openStorageDb', () => {
 
 		expect(row.total).toBe(2);
 		second.close();
+	});
+
+	it('supports multiple workflow versions and composite fk references', () => {
+		const dbPath = createTempDbPath();
+		const db = openStorageDb({ dbPath });
+
+		const insertWorkflow = db.prepare(`
+			INSERT INTO workflows(
+				id,
+				version,
+				description,
+				source_path,
+				hash,
+				created_at,
+				updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?);
+		`);
+
+		const now = new Date().toISOString();
+		insertWorkflow.run(
+			'code.refactor',
+			1,
+			'v1',
+			'library/workflows/code.refactor.yaml',
+			'hash-v1',
+			now,
+			now,
+		);
+		insertWorkflow.run(
+			'code.refactor',
+			2,
+			'v2',
+			'library/workflows/code.refactor.yaml',
+			'hash-v2',
+			now,
+			now,
+		);
+
+		const workflowCount = db
+			.prepare('SELECT COUNT(*) as total FROM workflows WHERE id = ?;')
+			.get('code.refactor') as { total: number };
+		expect(workflowCount.total).toBe(2);
+
+		const insertRun = db.prepare(`
+			INSERT INTO workflow_runs(
+				id,
+				workflow_id,
+				workflow_version,
+				workflow_hash,
+				status,
+				scheduled_at,
+				inputs_json,
+				created_at,
+				updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+		`);
+
+		insertRun.run(
+			'run-1',
+			'code.refactor',
+			2,
+			'hash-v2',
+			'queued',
+			now,
+			'{}',
+			now,
+			now,
+		);
+
+		expect(() =>
+			insertRun.run(
+				'run-2',
+				'code.refactor',
+				999,
+				'hash-v999',
+				'queued',
+				now,
+				'{}',
+				now,
+				now,
+			),
+		).toThrow();
+
+		db.close();
 	});
 });

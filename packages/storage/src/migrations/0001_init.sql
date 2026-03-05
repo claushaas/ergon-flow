@@ -1,12 +1,12 @@
 CREATE TABLE IF NOT EXISTS workflows (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   version INTEGER NOT NULL,
   description TEXT,
   source_path TEXT NOT NULL,
   hash TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  UNIQUE(id, version)
+  PRIMARY KEY (id, version)
 );
 
 CREATE TABLE IF NOT EXISTS workers (
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   finished_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY (workflow_id) REFERENCES workflows(id)
+  FOREIGN KEY (workflow_id, workflow_version) REFERENCES workflows(id, version)
 );
 
 CREATE TABLE IF NOT EXISTS step_runs (
