@@ -56,6 +56,7 @@ export interface NotifyStepDefinition extends BaseStepDefinition {
 	channel: string;
 	kind: 'notify';
 	message: string;
+	target?: string;
 }
 
 export interface ManualStepDefinition extends BaseStepDefinition {
@@ -96,6 +97,13 @@ export interface WorkflowMetadata {
 
 export type InputType = 'array' | 'boolean' | 'number' | 'object' | 'string';
 
+export interface InputSpec {
+	default?: unknown;
+	description?: string;
+	required?: boolean;
+	type: InputType;
+}
+
 // ─── Artifact declaration (template-level) ───────────────────────────────────
 
 export interface ArtifactDeclaration {
@@ -107,7 +115,7 @@ export interface ArtifactDeclaration {
 /** Parsed and normalized representation of a YAML workflow template. */
 export interface WorkflowTemplate {
 	artifacts?: Record<string, ArtifactDeclaration>;
-	inputs?: Record<string, InputType>;
+	inputs?: Record<string, InputSpec | InputType>;
 	outputs?: Record<string, string>;
 	steps: StepDefinition[];
 	workflow: WorkflowMetadata;

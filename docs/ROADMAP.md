@@ -89,7 +89,7 @@ Order rationale: every scope unlocks the next without backtracking.
 
 ## Scope A — Repo skeleton and shared foundations
 
-### Phase A1 — Packages and boundaries
+### Phase A1 — Packages and boundaries - ✅
 
 - Create pnpm workspace structure:
   - `packages/cli`
@@ -104,7 +104,7 @@ Order rationale: every scope unlocks the next without backtracking.
   - Executors depend on Clients + Shared
   - Clients depend on Shared
 
-### Phase A2 — Shared contracts
+### Phase A2 — Shared contracts - ✅
 
 - Define TypeScript types aligned to docs:
   - `WorkflowTemplate`
