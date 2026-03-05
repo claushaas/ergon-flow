@@ -224,7 +224,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
 
 ## Scope E — Executors (step types)
 
-### Phase E1 — Executor framework
+### Phase E1 — Executor framework - ✅
 
 - Implement `Executor` interface:
   - `execute(step, ctx) → { outputs, artifacts, status }`

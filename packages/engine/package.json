@@ -9,7 +9,7 @@
 	"name": "@ergon/engine",
 	"scripts": {
 		"build": "tsc --build",
-		"test": "echo engine tests placeholder"
+		"test": "vitest run --root ../.. packages/engine/tests"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",
