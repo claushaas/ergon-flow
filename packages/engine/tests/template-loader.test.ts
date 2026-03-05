@@ -190,6 +190,40 @@ describe('template validation (C2)', () => {
 		).toBe(true);
 	});
 
+	it('rejects circular dependencies across multiple steps', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{
+					command: 'echo a',
+					depends_on: ['step.c'],
+					id: 'step.a',
+					kind: 'exec',
+				},
+				{
+					command: 'echo b',
+					depends_on: ['step.a'],
+					id: 'step.b',
+					kind: 'exec',
+				},
+				{
+					command: 'echo c',
+					depends_on: ['step.b'],
+					id: 'step.c',
+					kind: 'exec',
+				},
+			],
+			workflow: { id: 'workflow.cycle', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('circular dependency detected'),
+			),
+		).toBe(true);
+	});
+
 	it('validates provider fields on agent steps', () => {
 		const missingProvider = normalizeTemplate({
 			steps: [{ id: 'agent.one', kind: 'agent', prompt: 'hello' }],

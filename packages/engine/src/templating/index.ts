@@ -257,8 +257,7 @@ function validateStepRequiredFields(
 
 	switch (step.kind) {
 		case 'agent': {
-			const provider = (step as { provider?: unknown }).provider;
-			if (!isNonEmptyString(provider)) {
+			if (!isNonEmptyString(step.provider)) {
 				pushError(
 					errors,
 					`${stepPath}.provider`,
@@ -266,25 +265,24 @@ function validateStepRequiredFields(
 				);
 				return;
 			}
-			if (!PROVIDER_SET.has(provider)) {
+			if (!PROVIDER_SET.has(step.provider)) {
 				pushError(
 					errors,
 					`${stepPath}.provider`,
-					`agent provider "${provider}" is not supported`,
+					`agent provider "${step.provider}" is not supported`,
 				);
 			}
 			return;
 		}
 		case 'artifact': {
-			const artifactStep = step as { input?: unknown; operation?: unknown };
-			if (!isNonEmptyString(artifactStep.input)) {
+			if (!isNonEmptyString(step.input)) {
 				pushError(
 					errors,
 					`${stepPath}.input`,
 					'artifact step requires a non-empty input',
 				);
 			}
-			if (!isNonEmptyString(artifactStep.operation)) {
+			if (!isNonEmptyString(step.operation)) {
 				pushError(
 					errors,
 					`${stepPath}.operation`,
@@ -294,8 +292,7 @@ function validateStepRequiredFields(
 			return;
 		}
 		case 'condition': {
-			const conditionStep = step as { expression?: unknown };
-			if (!isNonEmptyString(conditionStep.expression)) {
+			if (!isNonEmptyString(step.expression)) {
 				pushError(
 					errors,
 					`${stepPath}.expression`,
@@ -305,8 +302,7 @@ function validateStepRequiredFields(
 			return;
 		}
 		case 'exec': {
-			const execStep = step as { command?: unknown };
-			if (!isNonEmptyString(execStep.command)) {
+			if (!isNonEmptyString(step.command)) {
 				pushError(
 					errors,
 					`${stepPath}.command`,
@@ -316,15 +312,14 @@ function validateStepRequiredFields(
 			return;
 		}
 		case 'notify': {
-			const notifyStep = step as { channel?: unknown; message?: unknown };
-			if (!isNonEmptyString(notifyStep.channel)) {
+			if (!isNonEmptyString(step.channel)) {
 				pushError(
 					errors,
 					`${stepPath}.channel`,
 					'notify step requires a non-empty channel',
 				);
 			}
-			if (!isNonEmptyString(notifyStep.message)) {
+			if (!isNonEmptyString(step.message)) {
 				pushError(
 					errors,
 					`${stepPath}.message`,
@@ -337,6 +332,56 @@ function validateStepRequiredFields(
 			return;
 		default:
 			return;
+	}
+}
+
+function detectDependencyCycles(
+	template: WorkflowTemplate,
+	errors: TemplateValidationError[],
+): void {
+	const dependencies = new Map<string, string[]>();
+	for (const step of template.steps) {
+		dependencies.set(step.id, step.depends_on ?? []);
+	}
+
+	const visited = new Set<string>();
+	const inStack = new Set<string>();
+	const pathStack: string[] = [];
+
+	const visit = (stepId: string): void => {
+		if (inStack.has(stepId)) {
+			const cycleStart = pathStack.indexOf(stepId);
+			const cyclePath =
+				cycleStart >= 0 ? pathStack.slice(cycleStart).concat(stepId) : [stepId];
+			pushError(
+				errors,
+				'steps',
+				`circular dependency detected: ${cyclePath.join(' -> ')}`,
+			);
+			return;
+		}
+		if (visited.has(stepId)) {
+			return;
+		}
+
+		visited.add(stepId);
+		inStack.add(stepId);
+		pathStack.push(stepId);
+
+		const nextSteps = dependencies.get(stepId) ?? [];
+		for (const nextStepId of nextSteps) {
+			if (!dependencies.has(nextStepId)) {
+				continue;
+			}
+			visit(nextStepId);
+		}
+
+		pathStack.pop();
+		inStack.delete(stepId);
+	};
+
+	for (const stepId of dependencies.keys()) {
+		visit(stepId);
 	}
 }
 
@@ -365,8 +410,8 @@ export function validateTemplate(
 	const stepIds = new Set<string>();
 	for (const [index, step] of template.steps.entries()) {
 		const stepPath = `steps[${index}]`;
-		const stepId = (step as { id?: unknown }).id;
-		const stepKind = (step as { kind?: unknown }).kind;
+		const stepId = step.id;
+		const stepKind = step.kind;
 
 		if (!isNonEmptyString(stepId)) {
 			pushError(errors, `${stepPath}.id`, 'step.id is required');
@@ -399,7 +444,7 @@ export function validateTemplate(
 
 	for (const [index, step] of template.steps.entries()) {
 		const stepPath = `steps[${index}]`;
-		const dependsOn = (step as { depends_on?: unknown }).depends_on;
+		const dependsOn = step.depends_on;
 		if (!dependsOn) {
 			continue;
 		}
@@ -434,6 +479,8 @@ export function validateTemplate(
 			}
 		}
 	}
+
+	detectDependencyCycles(template, errors);
 
 	return {
 		errors,
