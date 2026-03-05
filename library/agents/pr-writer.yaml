@@ -1,2 +1,28 @@
 id: pr-writer
-model: TODO
+kind: model
+provider: openrouter
+model: deepseek/deepseek-v3.2
+
+capabilities:
+  - pr_description
+  - change_summary
+  - commit_context
+
+settings:
+  temperature: 0.2
+  max_tokens: 16000
+  reasoning: true
+
+execution:
+  retries: 2
+  timeout_seconds: 300
+
+output:
+  schema: agent.pr.v1
+
+notes: |
+  Agent responsible for producing structured pull request metadata after
+  code changes are generated. It receives context such as patch summary,
+  implementation plan, and analysis results, and produces a complete
+  pull request artifact including title, body, labels, reviewers, and
+  branch metadata conforming to the agent.pr.v1 schema.

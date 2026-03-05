@@ -1,2 +1,31 @@
 id: repo-analyzer
-model: TODO
+kind: model
+provider: openrouter
+model: deepseek/deepseek-v3.2
+
+capabilities:
+  - repository_analysis
+  - architecture_understanding
+  - dependency_mapping
+  - codebase_summarization
+
+settings:
+  temperature: 0.2
+  max_tokens: 32000
+  reasoning: true
+
+execution:
+  retries: 2
+  timeout_seconds: 600
+
+output:
+  schema: agent.analysis.v1
+
+notes: |
+  Agent responsible for analyzing a repository before planning or coding steps.
+  It inspects project structure, identifies relevant modules, dependencies,
+  architectural patterns, and potential impact areas for the requested change.
+
+  The output must conform to the agent.analysis.v1 schema and should highlight
+  affected components, relevant files, risks, and a clear summary that will
+  guide the planning phase of the workflow.

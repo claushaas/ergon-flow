@@ -1,2 +1,240 @@
-id: code.docs_update
-version: 1
+
+workflow:
+  id: code.docs_update
+  version: 1
+  description: "Update or generate project documentation: analyze code → plan docs → write/update docs → optional validation → review → manual gate → notify."
+  author: "ergon-flow"
+  tags: ["docs", "documentation", "maintenance", "pr"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Local filesystem path to the git repository."
+
+  base_branch:
+    type: string
+    description: "Branch to start from (e.g., main)."
+    default: "main"
+
+  new_branch:
+    type: string
+    description: "Branch to create for documentation updates (e.g., docs/update-architecture)."
+
+  objective:
+    type: string
+    description: "Goal of the documentation update (e.g., update architecture docs, add API documentation)."
+
+  constraints:
+    type: string
+    description: "Documentation constraints or style guidelines."
+    default: "Follow existing documentation style and structure. Prefer concise and accurate explanations."
+
+  focus_paths:
+    type: array
+    description: "Optional documentation paths to focus on (e.g., docs/, README.md)."
+    default: []
+
+  validation_command:
+    type: string
+    description: "Optional command to validate documentation (lint, build docs, etc.)."
+    default: ""
+
+  notify:
+    type: object
+    description: "Notification backend configuration."
+    default:
+      channel: "stdout"     # stdout|webhook|openclaw
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+steps:
+
+  - id: repo.prepare
+    kind: exec
+    name: "Prepare repository"
+    description: "Checkout base branch and create documentation update branch."
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      git fetch --all --prune
+      git checkout "{{ inputs.base_branch }}"
+      git pull --ff-only
+      git checkout -B "{{ inputs.new_branch }}"
+
+  - id: analyze
+    kind: agent
+    name: "Analyze documentation and codebase"
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    prompt: |
+      You are a documentation architect.
+
+      Objective:
+      {{ inputs.objective }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Focus paths:
+      {{ inputs.focus_paths }}
+
+      Analyze the repository documentation and determine:
+
+      - documentation gaps
+      - outdated sections
+      - missing explanations
+      - sections needing improvement
+
+      Produce structured JSON with keys:
+
+      - summary
+      - gaps
+      - outdated_sections
+      - proposed_updates
+
+  - id: plan
+    kind: agent
+    name: "Plan documentation changes"
+    provider: openrouter
+    model: moonshotai/kimi-k2.5
+    prompt: |
+      Create a documentation update plan.
+
+      Objective:
+      {{ inputs.objective }}
+
+      Analysis:
+      {{ artifacts.analyze }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Produce structured JSON with:
+
+      - documentation_strategy
+      - files_to_create
+      - files_to_update
+      - sections_to_modify
+      - writing_guidelines
+
+  - id: generate
+    kind: agent
+    name: "Generate documentation updates"
+    provider: claude-code
+    prompt: |
+      You are a senior technical writer.
+
+      Objective:
+      {{ inputs.objective }}
+
+      Documentation plan:
+      {{ artifacts.plan }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Generate a unified diff patch that updates the documentation accordingly.
+
+      Requirements:
+
+      - Output ONLY a git-compatible unified diff
+      - Maintain documentation consistency
+      - Avoid unnecessary changes
+
+  - id: patch.apply
+    kind: exec
+    name: "Apply documentation patch"
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      mkdir -p .ergon
+      cat > .ergon/docs.patch <<'PATCH'
+      {{ artifacts.generate }}
+      PATCH
+      git apply --index .ergon/docs.patch
+
+  - id: validate.should
+    kind: condition
+    name: "Should validate docs?"
+    expression: "{{ inputs.validation_command }}"
+
+  - id: docs.validate
+    kind: exec
+    name: "Validate documentation"
+    depends_on: [validate.should]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.validation_command }}
+
+  - id: review
+    kind: agent
+    name: "Review documentation changes"
+    provider: openrouter
+    model: moonshotai/kimi-k2.5
+    prompt: |
+      You are reviewing documentation updates.
+
+      Objective:
+      {{ inputs.objective }}
+
+      Documentation plan:
+      {{ artifacts.plan }}
+
+      Patch:
+      {{ artifacts.generate }}
+
+      Validation output:
+      {{ artifacts.docs_validate }}
+
+      Produce structured JSON with keys:
+
+      - summary
+      - quality_assessment
+      - improvements
+      - pr_title
+      - pr_body
+
+  - id: gate
+    kind: manual
+    name: "Manual review gate"
+    message: |
+      Documentation update ready.
+
+      Suggested PR title:
+      {{ artifacts.review.pr_title }}
+
+      Suggested PR body:
+      {{ artifacts.review.pr_body }}
+
+      Branch:
+      {{ inputs.new_branch }}
+
+      Base branch:
+      {{ inputs.base_branch }}
+
+      Review and merge if acceptable.
+
+  - id: notify
+    kind: notify
+    name: "Notify completion"
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: code.docs_update
+
+      Repo: {{ inputs.repo_path }}
+      Branch: {{ inputs.new_branch }}
+
+      Objective:
+      {{ inputs.objective }}
+
+      Summary:
+      {{ artifacts.review.summary }}
+
+outputs:
+  plan: artifacts.plan
+  patch: artifacts.generate
+  review: artifacts.review
+  branch: inputs.new_branch
+  base_branch: inputs.base_branch

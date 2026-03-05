@@ -1,2 +1,244 @@
-id: code.codegen
-version: 1
+
+workflow:
+  id: code.codegen
+  version: 1
+  description: "Generate new code for a feature using analysis → design → implementation → tests → review → manual gate → notify."
+  author: "ergon-flow"
+  tags: ["code", "generation", "feature", "pr"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Local filesystem path to the git repository."
+
+  base_branch:
+    type: string
+    description: "Branch to start from (e.g., main)."
+    default: "main"
+
+  new_branch:
+    type: string
+    description: "Branch to create for the feature implementation."
+
+  feature:
+    type: string
+    description: "Description of the feature to implement."
+
+  requirements:
+    type: string
+    description: "Functional requirements for the feature."
+
+  constraints:
+    type: string
+    description: "Architectural or technical constraints."
+    default: "Follow existing project conventions and architecture."
+
+  focus_paths:
+    type: array
+    description: "Optional paths where new code should be created or modified."
+    default: []
+
+  test_command:
+    type: string
+    description: "Command to run tests (empty means skip tests step)."
+    default: ""
+
+  notify:
+    type: object
+    description: "Notification configuration."
+    default:
+      channel: "stdout"     # stdout|webhook|openclaw
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+steps:
+
+  - id: repo.prepare
+    kind: exec
+    name: "Prepare repository"
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      git fetch --all --prune
+      git checkout "{{ inputs.base_branch }}"
+      git pull --ff-only
+      git checkout -B "{{ inputs.new_branch }}"
+
+  - id: analyze
+    kind: agent
+    name: "Analyze repository"
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    prompt: |
+      You are an expert software architect.
+
+      Feature:
+      {{ inputs.feature }}
+
+      Requirements:
+      {{ inputs.requirements }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Focus paths:
+      {{ inputs.focus_paths }}
+
+      Analyze the repository structure and determine the best place to implement the feature.
+
+      Output structured JSON with:
+      - architecture_context
+      - affected_modules
+      - risks
+      - suggested_structure
+
+  - id: design
+    kind: agent
+    name: "Design implementation"
+    provider: openrouter
+    model: moonshotai/kimi-k2.5
+    prompt: |
+      You are designing a feature implementation.
+
+      Feature:
+      {{ inputs.feature }}
+
+      Requirements:
+      {{ inputs.requirements }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Repository analysis:
+      {{ artifacts.analyze }}
+
+      Produce structured JSON with:
+      - design_summary
+      - files_to_create
+      - files_to_modify
+      - api_interfaces
+      - implementation_steps
+
+  - id: implement
+    kind: agent
+    name: "Generate code"
+    provider: codex
+    prompt: |
+      You are a coding agent generating a patch.
+
+      Feature:
+      {{ inputs.feature }}
+
+      Requirements:
+      {{ inputs.requirements }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Design:
+      {{ artifacts.design }}
+
+      Generate a unified diff patch compatible with `git apply`.
+
+      Output ONLY the diff.
+
+  - id: patch.apply
+    kind: exec
+    name: "Apply generated patch"
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      mkdir -p .ergon
+      cat > .ergon/codegen.patch <<'PATCH'
+      {{ artifacts.implement }}
+      PATCH
+      git apply --index .ergon/codegen.patch
+
+  - id: tests.run
+    kind: condition
+    name: "Should run tests"
+    expression: "{{ inputs.test_command }}"
+
+  - id: tests.exec
+    kind: exec
+    name: "Execute tests"
+    depends_on: [tests.run]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.test_command }}
+
+  - id: review
+    kind: agent
+    name: "Review generated implementation"
+    provider: claude-code
+    prompt: |
+      You are a senior code reviewer.
+
+      Feature:
+      {{ inputs.feature }}
+
+      Requirements:
+      {{ inputs.requirements }}
+
+      Design:
+      {{ artifacts.design }}
+
+      Patch:
+      {{ artifacts.implement }}
+
+      Test results:
+      {{ artifacts.tests_exec }}
+
+      Produce structured JSON:
+
+      - summary
+      - risk_assessment
+      - issues
+      - improvements
+      - pr_title
+      - pr_body
+
+  - id: gate
+    kind: manual
+    name: "Manual review gate"
+    message: |
+      Feature implementation ready.
+
+      Suggested PR title:
+      {{ artifacts.review.pr_title }}
+
+      Suggested PR body:
+      {{ artifacts.review.pr_body }}
+
+      Branch:
+      {{ inputs.new_branch }}
+
+      Base:
+      {{ inputs.base_branch }}
+
+      Review and merge if acceptable.
+
+  - id: notify
+    kind: notify
+    name: "Notify completion"
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: code.codegen
+
+      Repo: {{ inputs.repo_path }}
+      Branch: {{ inputs.new_branch }}
+
+      Feature:
+      {{ inputs.feature }}
+
+      Summary:
+      {{ artifacts.review.summary }}
+
+outputs:
+  design: artifacts.design
+  patch: artifacts.implement
+  review: artifacts.review
+  branch: inputs.new_branch
+  base_branch: inputs.base_branch

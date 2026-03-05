@@ -1,3 +1,57 @@
 {
+  "$id": "agent.pr.v1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Structured pull request metadata produced by an agent after generating or applying a patch.",
+  "properties": {
+    "base_branch": {
+      "description": "Base branch where the pull request should be opened (e.g., main or develop).",
+      "type": "string"
+    },
+    "body": {
+      "description": "Full pull request description including context, explanation of changes, and testing notes.",
+      "type": "string"
+    },
+    "breaking_changes": {
+      "default": false,
+      "description": "Indicates whether the pull request introduces breaking changes.",
+      "type": "boolean"
+    },
+    "head_branch": {
+      "description": "Branch containing the changes produced by the workflow.",
+      "type": "string"
+    },
+    "labels": {
+      "description": "Optional labels that should be applied to the pull request.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "migration_notes": {
+      "description": "Optional notes explaining required migrations or upgrade steps.",
+      "type": "string"
+    },
+    "reviewers": {
+      "description": "Suggested reviewers for the pull request.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "summary": {
+      "description": "Short summary of the change suitable for dashboards or notifications.",
+      "type": "string"
+    },
+    "title": {
+      "description": "Title of the pull request.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "body"
+  ],
+  "title": "Agent Pull Request Artifact",
   "type": "object"
 }

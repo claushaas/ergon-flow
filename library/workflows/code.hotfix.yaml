@@ -1,2 +1,252 @@
-id: code.hotfix
-version: 1
+
+workflow:
+  id: code.hotfix
+  version: 1
+  description: "Apply a targeted hotfix: analyze failure → design minimal fix → generate patch → tests → review → manual gate → notify."
+  author: "ergon-flow"
+  tags: ["code", "hotfix", "bugfix", "pr"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Local filesystem path to the git repository."
+
+  base_branch:
+    type: string
+    description: "Branch to start from (e.g., main or release branch)."
+    default: "main"
+
+  new_branch:
+    type: string
+    description: "Branch to create for the hotfix (e.g., hotfix/null-pointer-crash)."
+
+  issue:
+    type: string
+    description: "Description of the bug, failure, or incident being fixed."
+
+  context:
+    type: string
+    description: "Additional context such as stack traces, logs, or reproduction steps."
+    default: ""
+
+  constraints:
+    type: string
+    description: "Constraints for the fix (e.g., minimal change, no API changes, backport safe)."
+    default: "Implement the smallest safe fix. Avoid refactors or unrelated changes."
+
+  focus_paths:
+    type: array
+    description: "Optional list of paths where the issue likely exists."
+    default: []
+
+  test_command:
+    type: string
+    description: "Command to run tests (empty means skip tests step)."
+    default: ""
+
+  notify:
+    type: object
+    description: "Notification backend configuration."
+    default:
+      channel: "stdout"     # stdout|webhook|openclaw
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+steps:
+
+  - id: repo.prepare
+    kind: exec
+    name: "Prepare repository"
+    description: "Checkout base branch and create hotfix branch."
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      git fetch --all --prune
+      git checkout "{{ inputs.base_branch }}"
+      git pull --ff-only
+      git checkout -B "{{ inputs.new_branch }}"
+
+  - id: analyze
+    kind: agent
+    name: "Analyze bug and code"
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    prompt: |
+      You are investigating a production bug.
+
+      Issue description:
+      {{ inputs.issue }}
+
+      Context (logs, stack traces, reproduction):
+      {{ inputs.context }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Focus paths:
+      {{ inputs.focus_paths }}
+
+      Determine:
+
+      - likely root cause
+      - affected components
+      - minimal safe fix strategy
+      - files likely involved
+
+      Produce structured JSON with keys:
+
+      - root_cause
+      - affected_components
+      - fix_strategy
+      - files
+      - risks
+
+  - id: design
+    kind: agent
+    name: "Design minimal fix"
+    provider: openrouter
+    model: moonshotai/kimi-k2.5
+    prompt: |
+      You are designing a minimal hotfix.
+
+      Issue:
+      {{ inputs.issue }}
+
+      Analysis:
+      {{ artifacts.analyze }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Produce structured JSON with:
+
+      - fix_summary
+      - changes
+      - files_to_modify
+      - verification_steps
+
+      Ensure the fix is minimal and safe for production.
+
+  - id: patch
+    kind: agent
+    name: "Generate hotfix patch"
+    provider: codex
+    prompt: |
+      You are a coding agent generating a minimal bugfix.
+
+      Issue:
+      {{ inputs.issue }}
+
+      Fix design:
+      {{ artifacts.design }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Generate a unified diff patch compatible with `git apply`.
+
+      Rules:
+
+      - Output ONLY the patch
+      - Keep the change minimal
+      - Avoid unrelated refactors
+
+  - id: patch.apply
+    kind: exec
+    name: "Apply patch"
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      mkdir -p .ergon
+      cat > .ergon/hotfix.patch <<'PATCH'
+      {{ artifacts.patch }}
+      PATCH
+      git apply --index .ergon/hotfix.patch
+
+  - id: tests.should
+    kind: condition
+    name: "Should run tests?"
+    expression: "{{ inputs.test_command }}"
+
+  - id: tests.exec
+    kind: exec
+    name: "Run tests"
+    depends_on: [tests.should]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.test_command }}
+
+  - id: review
+    kind: agent
+    name: "Review hotfix"
+    provider: claude-code
+    prompt: |
+      You are reviewing a production hotfix.
+
+      Issue:
+      {{ inputs.issue }}
+
+      Analysis:
+      {{ artifacts.analyze }}
+
+      Fix design:
+      {{ artifacts.design }}
+
+      Patch:
+      {{ artifacts.patch }}
+
+      Test results:
+      {{ artifacts.tests_exec }}
+
+      Produce structured JSON with:
+
+      - summary
+      - risk_assessment
+      - follow_up_actions
+      - pr_title
+      - pr_body
+
+  - id: gate
+    kind: manual
+    name: "Manual review gate"
+    message: |
+      Hotfix branch ready for review.
+
+      Suggested PR title:
+      {{ artifacts.review.pr_title }}
+
+      Suggested PR body:
+      {{ artifacts.review.pr_body }}
+
+      Branch:
+      {{ inputs.new_branch }}
+
+      Base branch:
+      {{ inputs.base_branch }}
+
+      Review carefully before merging.
+
+  - id: notify
+    kind: notify
+    name: "Notify completion"
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: code.hotfix
+
+      Repo: {{ inputs.repo_path }}
+      Branch: {{ inputs.new_branch }}
+
+      Issue:
+      {{ inputs.issue }}
+
+      Summary:
+      {{ artifacts.review.summary }}
+
+outputs:
+  design: artifacts.design
+  patch: artifacts.patch
+  review: artifacts.review
+  branch: inputs.new_branch
+  base_branch: inputs.base_branch

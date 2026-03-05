@@ -1,0 +1,244 @@
+workflow:
+  id: code.refactor
+  version: 1
+  description: "Refactor code with an AI-assisted plan → patch → tests → review → manual gate → notify."
+  author: "ergon-flow"
+  tags: ["code", "refactor", "pr"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Local filesystem path to the git repository."
+  base_branch:
+    type: string
+    description: "Branch to start from (e.g., main)."
+    default: "main"
+  new_branch:
+    type: string
+    description: "Branch to create for the refactor (e.g., refactor/xyz)."
+  task:
+    type: string
+    description: "What to refactor and why."
+  constraints:
+    type: string
+    description: "Hard constraints (keep behavior, keep public API, performance limits, etc.)."
+    default: "No behavior changes unless explicitly stated. Keep public APIs stable."
+  focus_paths:
+    type: array
+    description: "Optional list of paths/globs to focus on."
+    default: []
+  test_command:
+    type: string
+    description: "Command to run tests (empty means skip tests step)."
+    default: ""
+  notify:
+    type: object
+    description: "Notification backend config."
+    default:
+      channel: "stdout"          # stdout|webhook|openclaw
+      target: ""                 # e.g. Slack channel, webhook URL, openclaw target
+      message_prefix: "[ergon-flow]"
+
+steps:
+  - id: repo.prepare
+    kind: exec
+    name: "Prepare repo branch"
+    description: "Fetch, checkout base branch, create new branch."
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      git fetch --all --prune
+      git checkout "{{ inputs.base_branch }}"
+      git pull --ff-only
+      git checkout -B "{{ inputs.new_branch }}"
+
+  - id: analyze
+    kind: agent
+    name: "Analyze codebase"
+    description: "Analyze current structure, risks, and refactor approach. Produce an analysis artifact."
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    prompt: |
+      You are an expert software engineer.
+
+      Task:
+      {{ inputs.task }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Focus paths (may be empty):
+      {{ inputs.focus_paths }}
+
+      Produce:
+      1) A concise diagnosis of current structure/problems
+      2) Risks (behavior change, API break, perf, tests)
+      3) A refactor strategy suitable for a single PR
+      4) A list of files likely to change
+
+      Output MUST be structured JSON with keys:
+      - diagnosis
+      - risks
+      - strategy
+      - files
+      - notes
+
+  - id: plan
+    kind: agent
+    name: "Create step-by-step plan"
+    description: "Turn analysis into an ordered plan with checkpoints."
+    provider: openrouter
+    model: moonshotai/kimi-k2.5
+    prompt: |
+      You are creating an implementation plan for a refactor.
+
+      Task:
+      {{ inputs.task }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Prior analysis (JSON):
+      {{ artifacts.analysis }}
+
+      Produce an ordered plan for a single PR.
+
+      Output MUST be structured JSON with keys:
+      - goal
+      - approach
+      - steps (array of {id, description, files, verification})
+      - rollback
+      - pr_description
+
+  - id: patch
+    kind: agent
+    name: "Generate patch"
+    description: "Generate a unified diff patch implementing the plan."
+    provider: codex
+    prompt: |
+      You are an AI coding agent. Generate a unified diff patch.
+
+      Repo path:
+      {{ inputs.repo_path }}
+
+      Task:
+      {{ inputs.task }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Plan (JSON):
+      {{ artifacts.plan }}
+
+      Requirements:
+      - Output ONLY a unified diff (git apply compatible)
+      - No prose outside the diff
+      - Keep changes minimal and coherent
+
+  - id: patch.apply
+    kind: exec
+    name: "Apply patch"
+    description: "Write patch to disk and apply it to the repo."
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      mkdir -p .ergon
+      cat > .ergon/refactor.patch <<'PATCH'
+      {{ artifacts.patch }}
+      PATCH
+      git apply --index .ergon/refactor.patch
+
+  - id: tests.run
+    kind: condition
+    name: "Should run tests?"
+    description: "Skip test execution if test_command is empty."
+    expression: "{{ inputs.test_command }}"
+
+  - id: tests.exec
+    kind: exec
+    name: "Run tests"
+    description: "Run tests and capture results."
+    depends_on: [tests.run]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.test_command }}
+
+  - id: review
+    kind: agent
+    name: "Review changes"
+    description: "Review the patch and test results. Provide final PR text and any follow-ups."
+    provider: claude-code
+    prompt: |
+      You are a meticulous code reviewer.
+
+      Task:
+      {{ inputs.task }}
+
+      Constraints:
+      {{ inputs.constraints }}
+
+      Plan (JSON):
+      {{ artifacts.plan }}
+
+      Patch (diff):
+      {{ artifacts.patch }}
+
+      Test command:
+      {{ inputs.test_command }}
+
+      Test execution result (may be empty if skipped):
+      {{ artifacts.tests_exec }}
+
+      Produce structured JSON with keys:
+      - summary
+      - risk_assessment
+      - required_changes (array)
+      - optional_improvements (array)
+      - pr_title
+      - pr_body
+
+  - id: gate
+    kind: manual
+    name: "Manual gate"
+    description: "Human verifies PR, merges, and marks workflow complete."
+    message: |
+      PR is ready to review.
+
+      Suggested PR title:
+      {{ artifacts.review.pr_title }}
+
+      Suggested PR body:
+      {{ artifacts.review.pr_body }}
+
+      Repo:
+      {{ inputs.repo_path }}
+
+      Branch:
+      {{ inputs.new_branch }} (from {{ inputs.base_branch }})
+
+      Decision required: approve or reject.
+
+  - id: notify
+    kind: notify
+    name: "Notify user"
+    description: "Send final notification (stdout/webhook/openclaw)."
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: code.refactor
+
+      Repo: {{ inputs.repo_path }}
+      Branch: {{ inputs.new_branch }} (from {{ inputs.base_branch }})
+
+      Next action: review the branch / open PR / merge.
+
+      Summary:
+      {{ artifacts.review.summary }}
+
+outputs:
+  patch: artifacts.patch
+  plan: artifacts.plan
+  review: artifacts.review
+  branch: inputs.new_branch
+  base_branch: inputs.base_branch

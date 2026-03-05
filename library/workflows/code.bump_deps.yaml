@@ -1,2 +1,262 @@
-id: code.bump_deps
-version: 1
+
+workflow:
+  id: code.bump_deps
+  version: 1
+  description: "Bump dependencies safely: scan → propose plan → apply updates → tests → review → manual gate → notify."
+  author: "ergon-flow"
+  tags: ["code", "deps", "maintenance", "pr"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Local filesystem path to the git repository."
+
+  base_branch:
+    type: string
+    description: "Branch to start from (e.g., main)."
+    default: "main"
+
+  new_branch:
+    type: string
+    description: "Branch to create for dependency bumps (e.g., chore/deps-2026-03-05)."
+
+  ecosystem:
+    type: string
+    description: "Dependency ecosystem (informational): node|python|rust|go|mixed."
+    default: "node"
+
+  policy:
+    type: string
+    description: "Update policy and constraints."
+    default: "Prefer minor/patch updates. Avoid major updates unless explicitly requested. Keep CI green."
+
+  include:
+    type: array
+    description: "Optional list of dependency names to include (empty means all)."
+    default: []
+
+  exclude:
+    type: array
+    description: "Optional list of dependency names to exclude."
+    default: []
+
+  scan_command:
+    type: string
+    description: "Command that outputs the current dependency state and/or outdated report."
+    default: ""
+
+  update_command:
+    type: string
+    description: "Command that performs the dependency update."
+    default: ""
+
+  install_command:
+    type: string
+    description: "Command to (re)install dependencies after updates (if needed)."
+    default: ""
+
+  test_command:
+    type: string
+    description: "Command to run tests (empty means skip tests)."
+    default: ""
+
+  notify:
+    type: object
+    description: "Notification backend config."
+    default:
+      channel: "stdout"          # stdout|webhook|openclaw
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+steps:
+
+  - id: repo.prepare
+    kind: exec
+    name: "Prepare repo branch"
+    description: "Fetch, checkout base branch, create new branch for dependency bump."
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      git fetch --all --prune
+      git checkout "{{ inputs.base_branch }}"
+      git pull --ff-only
+      git checkout -B "{{ inputs.new_branch }}"
+
+  - id: scan.should
+    kind: condition
+    name: "Should scan deps?"
+    description: "Skip scan step if scan_command is empty."
+    expression: "{{ inputs.scan_command }}"
+
+  - id: deps.scan
+    kind: exec
+    name: "Scan dependencies"
+    description: "Run a repo-specific command to capture outdated/dependency state."
+    depends_on: [scan.should]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.scan_command }}
+
+  - id: plan
+    kind: agent
+    name: "Propose dependency update plan"
+    description: "Decide what to update (based on scan output when available), and produce a safe plan for a single PR."
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    prompt: |
+      You are maintaining a production codebase. Propose a dependency update plan.
+
+      Repository path:
+      {{ inputs.repo_path }}
+
+      Ecosystem:
+      {{ inputs.ecosystem }}
+
+      Policy:
+      {{ inputs.policy }}
+
+      Include (may be empty):
+      {{ inputs.include }}
+
+      Exclude (may be empty):
+      {{ inputs.exclude }}
+
+      Outdated/dependency scan output (may be empty if scan was skipped):
+      {{ artifacts.deps_scan }}
+
+      Produce structured JSON with keys:
+      - summary
+      - update_set (array of {name, from, to, reason, risk})
+      - commands (object: {update_command, install_command})
+      - verification (array of checks)
+      - pr_title
+      - pr_body
+
+      Rules:
+      - Prefer minor/patch upgrades unless explicitly requested
+      - Avoid major bumps unless clearly safe
+      - If scan output is missing, infer a conservative plan and ask to provide scan_command
+
+  - id: update.should
+    kind: condition
+    name: "Should run update command?"
+    description: "Skip update step if update_command is empty."
+    expression: "{{ inputs.update_command }}"
+
+  - id: deps.update
+    kind: exec
+    name: "Apply dependency updates"
+    description: "Run update command and stage changes."
+    depends_on: [update.should]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.update_command }}
+
+  - id: install.should
+    kind: condition
+    name: "Should install after update?"
+    description: "Skip install if install_command is empty."
+    expression: "{{ inputs.install_command }}"
+
+  - id: deps.install
+    kind: exec
+    name: "Install dependencies"
+    description: "(Re)install dependencies after updates if needed."
+    depends_on: [install.should]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.install_command }}
+
+  - id: tests.should
+    kind: condition
+    name: "Should run tests?"
+    description: "Skip tests if test_command is empty."
+    expression: "{{ inputs.test_command }}"
+
+  - id: tests.exec
+    kind: exec
+    name: "Run tests"
+    description: "Run test suite and capture results."
+    depends_on: [tests.should]
+    command: |
+      set -euo pipefail
+      cd "{{ inputs.repo_path }}"
+      {{ inputs.test_command }}
+
+  - id: review
+    kind: agent
+    name: "Review changes and produce PR text"
+    description: "Summarize changes, assess risk, and generate final PR title/body."
+    provider: openrouter
+    model: moonshotai/kimi-k2.5
+    prompt: |
+      You are a senior maintainer reviewing dependency updates.
+
+      Planned update set (JSON):
+      {{ artifacts.plan }}
+
+      Scan output (may be empty):
+      {{ artifacts.deps_scan }}
+
+      Update execution output (may be empty if skipped):
+      {{ artifacts.deps_update }}
+
+      Install output (may be empty if skipped):
+      {{ artifacts.deps_install }}
+
+      Test output (may be empty if skipped):
+      {{ artifacts.tests_exec }}
+
+      Produce structured JSON with keys:
+      - summary
+      - risk_assessment
+      - notes
+      - pr_title
+      - pr_body
+
+  - id: gate
+    kind: manual
+    name: "Manual gate"
+    description: "Human verifies PR, merges, and marks workflow complete."
+    message: |
+      Dependency bump branch is ready.
+
+      Suggested PR title:
+      {{ artifacts.review.pr_title }}
+
+      Suggested PR body:
+      {{ artifacts.review.pr_body }}
+
+      Repo:
+      {{ inputs.repo_path }}
+
+      Branch:
+      {{ inputs.new_branch }} (from {{ inputs.base_branch }})
+
+      Decision required: approve or reject.
+
+  - id: notify
+    kind: notify
+    name: "Notify user"
+    description: "Send final notification (stdout/webhook/openclaw)."
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: code.bump_deps
+
+      Repo: {{ inputs.repo_path }}
+      Branch: {{ inputs.new_branch }} (from {{ inputs.base_branch }})
+
+      Next action: open PR / review / merge.
+
+      Summary:
+      {{ artifacts.review.summary }}
+
+outputs:
+  plan: artifacts.plan
+  review: artifacts.review
+  branch: inputs.new_branch
+  base_branch: inputs.base_branch

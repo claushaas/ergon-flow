@@ -1,3 +1,53 @@
 {
+  "$id": "agent.analysis.v1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Structured analysis produced by an agent step before planning or implementation.",
+  "properties": {
+    "affected_components": {
+      "description": "List of components, modules, or areas affected.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "diagnosis": {
+      "description": "Detailed explanation of the current state or problem.",
+      "type": "string"
+    },
+    "files": {
+      "description": "List of relevant files identified during analysis.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "notes": {
+      "description": "Additional observations useful for later steps.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "risks": {
+      "description": "Potential risks identified during the analysis.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "root_cause": {
+      "description": "Identified root cause when applicable.",
+      "type": "string"
+    },
+    "summary": {
+      "description": "High level summary of the analysis.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "summary"
+  ],
+  "title": "Agent Analysis Artifact",
   "type": "object"
 }

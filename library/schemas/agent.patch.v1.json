@@ -1,3 +1,60 @@
 {
+  "$id": "agent.patch.v1",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Structured patch produced by a coding agent representing file modifications.",
+  "properties": {
+    "breaking_changes": {
+      "default": false,
+      "description": "Indicates if the patch introduces breaking changes.",
+      "type": "boolean"
+    },
+    "files_added": {
+      "description": "List of newly created files.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "files_deleted": {
+      "description": "List of removed files.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "files_modified": {
+      "description": "List of files modified by the patch.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "notes": {
+      "description": "Additional implementation notes.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "patch": {
+      "description": "Unified diff patch representing the code changes.",
+      "type": "string"
+    },
+    "summary": {
+      "description": "Short description of the changes implemented.",
+      "type": "string"
+    },
+    "tests_added": {
+      "default": false,
+      "description": "Indicates whether tests were added or updated.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "summary",
+    "patch"
+  ],
+  "title": "Agent Patch Artifact",
   "type": "object"
 }

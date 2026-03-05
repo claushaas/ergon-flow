@@ -1,6 +1,0 @@
-id: code.refactor_small
-version: 1
-description: Placeholder workflow template
-steps:
-  - id: analyze
-    kind: agent

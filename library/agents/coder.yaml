@@ -1,2 +1,27 @@
+
 id: coder
-model: TODO
+kind: model
+provider: openrouter
+model: deepseek/deepseek-v3.2-speciale
+
+capabilities:
+  - code_patch
+  - diff_generation
+  - long_context
+
+settings:
+  temperature: 0.1
+  max_tokens: 32000
+  reasoning: true
+
+execution:
+  retries: 2
+  timeout_seconds: 600
+
+output:
+  schema: agent.patch.v1
+
+notes: |
+  Primary coding agent responsible for generating unified diff patches.
+  This agent receives implementation plans and produces code modifications
+  as structured patch artifacts conforming to the agent.patch.v1 schema.
