@@ -1,7 +1,7 @@
 /**
  * Filesystem layout helpers for Ergon Flow run directories.
  *
- * Layout (relative to a configurable base directory, default: process.cwd()):
+ * Layout (relative to a configurable base directory):
  *
  *   .runs/
  *     <run_id>/
@@ -22,6 +22,32 @@ import path from 'node:path';
 
 export const RUNS_DIR = '.runs';
 
+function assertPathWithinBase(
+	base: string,
+	candidate: string,
+	label: string,
+): void {
+	const relative = path.relative(path.resolve(base), path.resolve(candidate));
+	if (relative === '') {
+		return;
+	}
+	if (relative.startsWith('..') || path.isAbsolute(relative)) {
+		throw new Error(
+			`Unsafe ${label}: ${JSON.stringify(candidate)} escapes base ${JSON.stringify(base)}`,
+		);
+	}
+}
+
+function joinWithinBase(
+	base: string,
+	label: string,
+	...segments: string[]
+): string {
+	const candidate = path.join(base, ...segments);
+	assertPathWithinBase(base, candidate, label);
+	return candidate;
+}
+
 // ─── Segment validation ──────────────────────────────────────────────────────
 
 /**
@@ -33,15 +59,14 @@ export const RUNS_DIR = '.runs';
 export function assertSafeSegment(segment: string, label = 'segment'): void {
 	if (
 		!segment ||
+		!segment.trim() ||
 		segment === '.' ||
 		segment === '..' ||
 		segment.includes('/') ||
 		segment.includes('\\') ||
 		segment.includes('\0')
 	) {
-		throw new Error(
-			`Unsafe path ${label}: ${JSON.stringify(segment)}`,
-		);
+		throw new Error(`Unsafe path ${label}: ${JSON.stringify(segment)}`);
 	}
 }
 
@@ -54,7 +79,7 @@ export function assertSafeSegment(segment: string, label = 'segment'): void {
  */
 export function runDir(base: string, runId: string): string {
 	assertSafeSegment(runId, 'runId');
-	return path.join(base, RUNS_DIR, runId);
+	return joinWithinBase(base, 'run path', RUNS_DIR, runId);
 }
 
 /**
@@ -63,7 +88,8 @@ export function runDir(base: string, runId: string): string {
  * @example artifactsDir('/project', 'run-01') → '/project/.runs/run-01/artifacts'
  */
 export function artifactsDir(base: string, runId: string): string {
-	return path.join(runDir(base, runId), 'artifacts');
+	assertSafeSegment(runId, 'runId');
+	return joinWithinBase(base, 'artifacts path', RUNS_DIR, runId, 'artifacts');
 }
 
 /**
@@ -78,11 +104,20 @@ export function stepAttemptDir(
 	stepId: string,
 	attempt: number,
 ): string {
+	assertSafeSegment(runId, 'runId');
 	assertSafeSegment(stepId, 'stepId');
 	if (!Number.isInteger(attempt) || attempt < 1) {
 		throw new Error(`attempt must be a positive integer, got ${attempt}`);
 	}
-	return path.join(runDir(base, runId), 'steps', stepId, String(attempt));
+	return joinWithinBase(
+		base,
+		'step attempt path',
+		RUNS_DIR,
+		runId,
+		'steps',
+		stepId,
+		String(attempt),
+	);
 }
 
 /**
@@ -98,6 +133,14 @@ export function artifactPath(
 	runId: string,
 	name: string,
 ): string {
+	assertSafeSegment(runId, 'runId');
 	assertSafeSegment(name, 'artifact name');
-	return path.join(artifactsDir(base, runId), name);
+	return joinWithinBase(
+		base,
+		'artifact path',
+		RUNS_DIR,
+		runId,
+		'artifacts',
+		name,
+	);
 }

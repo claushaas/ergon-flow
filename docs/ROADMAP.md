@@ -125,7 +125,7 @@ Order rationale: every scope unlocks the next without backtracking.
   - `condition_failed`
   - `manual_rejected`
 
-### Phase A3 — Local filesystem layout
+### Phase A3 — Local filesystem layout - ✅
 
 - Define `.runs/<run_id>/...` directory rules
 - Implement safe path helpers (no traversal)

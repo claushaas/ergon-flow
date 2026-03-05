@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-	RUNS_DIR,
 	artifactPath,
 	artifactsDir,
 	assertSafeSegment,
+	RUNS_DIR,
 	runDir,
 	stepAttemptDir,
 } from '../src/paths.js';
@@ -27,6 +27,10 @@ describe('assertSafeSegment', () => {
 
 	it('rejects empty string', () => {
 		expect(() => assertSafeSegment('')).toThrow();
+	});
+
+	it('rejects whitespace-only segment', () => {
+		expect(() => assertSafeSegment('   ')).toThrow();
 	});
 
 	it('rejects single dot', () => {
@@ -57,9 +61,7 @@ describe('assertSafeSegment', () => {
 
 describe('runDir', () => {
 	it('returns base/.runs/runId', () => {
-		expect(runDir(BASE, 'run-01')).toBe(
-			path.join(BASE, '.runs', 'run-01'),
-		);
+		expect(runDir(BASE, 'run-01')).toBe(path.join(BASE, '.runs', 'run-01'));
 	});
 
 	it('works with relative base', () => {
@@ -101,15 +103,21 @@ describe('stepAttemptDir', () => {
 	});
 
 	it('throws on unsafe stepId', () => {
-		expect(() => stepAttemptDir(BASE, 'run-01', '../evil', 1)).toThrow(/stepId/);
+		expect(() => stepAttemptDir(BASE, 'run-01', '../evil', 1)).toThrow(
+			/stepId/,
+		);
 	});
 
 	it('throws on attempt < 1', () => {
-		expect(() => stepAttemptDir(BASE, 'run-01', 'analyze', 0)).toThrow(/attempt/);
+		expect(() => stepAttemptDir(BASE, 'run-01', 'analyze', 0)).toThrow(
+			/attempt/,
+		);
 	});
 
 	it('throws on non-integer attempt', () => {
-		expect(() => stepAttemptDir(BASE, 'run-01', 'analyze', 1.5)).toThrow(/attempt/);
+		expect(() => stepAttemptDir(BASE, 'run-01', 'analyze', 1.5)).toThrow(
+			/attempt/,
+		);
 	});
 });
 
@@ -121,7 +129,9 @@ describe('artifactPath', () => {
 	});
 
 	it('throws on unsafe artifact name', () => {
-		expect(() => artifactPath(BASE, 'run-01', '../secret')).toThrow(/artifact name/);
+		expect(() => artifactPath(BASE, 'run-01', '../secret')).toThrow(
+			/artifact name/,
+		);
 	});
 
 	it('throws on empty name', () => {
