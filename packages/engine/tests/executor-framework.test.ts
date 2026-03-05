@@ -36,10 +36,19 @@ class StubManualExecutor implements Executor<ManualStepDefinition> {
 	public readonly kind = 'manual' as const;
 
 	public async execute(
-		_step: ManualStepDefinition,
-		_context: ExecutionContext,
+		step: ManualStepDefinition,
+		context: ExecutionContext,
 	): Promise<ExecutorResult> {
 		return {
+			events: [
+				{
+					payload: {
+						runId: context.run.runId,
+						stepId: step.id,
+					},
+					type: 'manual_waiting',
+				},
+			],
 			status: 'waiting_manual',
 		};
 	}

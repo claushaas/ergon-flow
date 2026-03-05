@@ -1,5 +1,6 @@
 import type {
 	ArtifactType,
+	EventType,
 	StepDefinition,
 	StepKind,
 	StepRunStatus,
@@ -9,6 +10,11 @@ export interface ExecutorArtifact {
 	name: string;
 	type: ArtifactType;
 	value: unknown;
+}
+
+export interface ExecutorEvent {
+	payload?: Record<string, unknown>;
+	type: EventType;
 }
 
 export interface ExecutionRunMetadata {
@@ -37,6 +43,7 @@ export interface CreateExecutionContextOptions {
 
 export interface ExecutorResult {
 	artifacts?: ExecutorArtifact[];
+	events?: ExecutorEvent[];
 	outputs?: Record<string, unknown>;
 	status: Extract<
 		StepRunStatus,

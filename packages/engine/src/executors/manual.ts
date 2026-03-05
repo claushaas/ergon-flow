@@ -5,9 +5,25 @@ export class ManualExecutor implements Executor<ManualStepDefinition> {
 	public readonly kind = 'manual' as const;
 
 	public async execute(
-		_step: ManualStepDefinition,
-		_context: ExecutionContext,
+		step: ManualStepDefinition,
+		context: ExecutionContext,
 	): Promise<ExecutorResult> {
-		throw new Error('ManualExecutor is not implemented yet');
+		const message = step.message?.trim() || undefined;
+		const payload = {
+			runId: context.run.runId,
+			stepId: step.id,
+			...(message ? { message } : {}),
+		};
+
+		return {
+			events: [
+				{
+					payload,
+					type: 'manual_waiting',
+				},
+			],
+			outputs: payload,
+			status: 'waiting_manual',
+		};
 	}
 }
