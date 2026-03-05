@@ -1,6 +1,12 @@
 import type { ArtifactStepDefinition } from '@ergon/shared';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 
+const RESERVED_ARTIFACT_KEYS = new Set([
+	'__proto__',
+	'constructor',
+	'prototype',
+]);
+
 type ParsedArtifactOperation =
 	| {
 			outputName: string;
@@ -21,6 +27,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isReservedArtifactKey(key: string): boolean {
+	return RESERVED_ARTIFACT_KEYS.has(key);
+}
+
+function assertSafeArtifactName(name: string, stepId: string): string {
+	if (!name || isReservedArtifactKey(name)) {
+		throw new Error(`Artifact step "${stepId}" uses a reserved output name`);
+	}
+	return name;
+}
+
+function cloneArtifactValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return [...value];
+	}
+	if (isRecord(value)) {
+		const copy: Record<string, unknown> = {};
+		for (const [key, entryValue] of Object.entries(value)) {
+			if (!isReservedArtifactKey(key)) {
+				copy[key] = entryValue;
+			}
+		}
+		return copy;
+	}
+	return value;
+}
+
 function getPathValue(source: unknown, path: string): unknown {
 	const pathParts = path
 		.split('.')
@@ -34,7 +67,11 @@ function getPathValue(source: unknown, path: string): unknown {
 
 	let current: unknown = source;
 	for (const part of pathParts) {
-		if (!isRecord(current) || !(part in current)) {
+		if (
+			!isRecord(current) ||
+			isReservedArtifactKey(part) ||
+			!Object.hasOwn(current, part)
+		) {
 			throw new Error(`Artifact field "${path}" was not found`);
 		}
 		current = current[part];
@@ -50,7 +87,7 @@ function parseOperation(step: ArtifactStepDefinition): ParsedArtifactOperation {
 	switch (type) {
 		case 'copy':
 			return {
-				outputName: args[0] || step.id,
+				outputName: assertSafeArtifactName(args[0] || step.id, step.id),
 				type,
 			};
 		case 'rename':
@@ -60,7 +97,7 @@ function parseOperation(step: ArtifactStepDefinition): ParsedArtifactOperation {
 				);
 			}
 			return {
-				outputName: args[0],
+				outputName: assertSafeArtifactName(args[0], step.id),
 				type,
 			};
 		case 'extract':
@@ -71,7 +108,7 @@ function parseOperation(step: ArtifactStepDefinition): ParsedArtifactOperation {
 			}
 			return {
 				extractPath: args[0],
-				outputName: args[1] || step.id,
+				outputName: assertSafeArtifactName(args[1] || step.id, step.id),
 				type,
 			};
 		case 'merge': {
@@ -86,7 +123,7 @@ function parseOperation(step: ArtifactStepDefinition): ParsedArtifactOperation {
 			}
 			return {
 				mergeInputs,
-				outputName: args[1] || step.id,
+				outputName: assertSafeArtifactName(args[1] || step.id, step.id),
 				type,
 			};
 		}
@@ -111,7 +148,7 @@ export class ArtifactExecutor implements Executor<ArtifactStepDefinition> {
 		switch (operation.type) {
 			case 'copy':
 			case 'rename':
-				value = inputValue;
+				value = cloneArtifactValue(inputValue);
 				break;
 			case 'extract':
 				value = getPathValue(inputValue, operation.extractPath);
@@ -130,7 +167,13 @@ export class ArtifactExecutor implements Executor<ArtifactStepDefinition> {
 							`Artifact step "${step.id}" requires object artifact "${artifactName}" for merge`,
 						);
 					}
-					Object.assign(merged, artifactValue);
+					for (const [key, artifactEntryValue] of Object.entries(
+						artifactValue,
+					)) {
+						if (!isReservedArtifactKey(key)) {
+							merged[key] = artifactEntryValue;
+						}
+					}
 				}
 				value = merged;
 				break;

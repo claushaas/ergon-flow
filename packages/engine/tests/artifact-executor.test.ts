@@ -75,18 +75,26 @@ describe('ArtifactExecutor (E7)', () => {
 
 		const result = await executor.execute(step, createTestContext());
 
-		expect(result.artifacts).toEqual([
-			{
-				name: 'run.summary',
-				type: 'json',
-				value: {
-					details: {
-						severity: 'high',
+		expect(result).toEqual({
+			artifacts: [
+				{
+					name: 'run.summary',
+					type: 'json',
+					value: {
+						details: {
+							severity: 'high',
+						},
+						summary: 'needs refactor',
 					},
-					summary: 'needs refactor',
 				},
+			],
+			outputs: {
+				input: 'analysis',
+				name: 'run.summary',
+				operation: 'rename:run.summary',
 			},
-		]);
+			status: 'succeeded',
+		});
 	});
 
 	it('extracts a nested field from a JSON artifact', async () => {
@@ -100,13 +108,21 @@ describe('ArtifactExecutor (E7)', () => {
 
 		const result = await executor.execute(step, createTestContext());
 
-		expect(result.artifacts).toEqual([
-			{
+		expect(result).toEqual({
+			artifacts: [
+				{
+					name: 'analysis.severity',
+					type: 'json',
+					value: 'high',
+				},
+			],
+			outputs: {
+				input: 'analysis',
 				name: 'analysis.severity',
-				type: 'json',
-				value: 'high',
+				operation: 'extract:details.severity:analysis.severity',
 			},
-		]);
+			status: 'succeeded',
+		});
 	});
 
 	it('merges the input artifact with additional JSON artifacts', async () => {
@@ -120,23 +136,31 @@ describe('ArtifactExecutor (E7)', () => {
 
 		const result = await executor.execute(step, createTestContext());
 
-		expect(result.artifacts).toEqual([
-			{
-				name: 'merged.summary',
-				type: 'json',
-				value: {
-					details: {
-						severity: 'high',
+		expect(result).toEqual({
+			artifacts: [
+				{
+					name: 'merged.summary',
+					type: 'json',
+					value: {
+						details: {
+							severity: 'high',
+						},
+						files: 3,
+						status: 'ready',
+						summary: 'needs refactor',
 					},
-					files: 3,
-					status: 'ready',
-					summary: 'needs refactor',
 				},
+			],
+			outputs: {
+				input: 'analysis',
+				name: 'merged.summary',
+				operation: 'merge:patch_meta,run_summary:merged.summary',
 			},
-		]);
+			status: 'succeeded',
+		});
 	});
 
-	it('rejects unsupported operations and invalid merge sources', async () => {
+	it('rejects unsupported operations, reserved names and invalid merge sources', async () => {
 		const executor = new ArtifactExecutor();
 		const unsupportedStep: ArtifactStepDefinition = {
 			id: 'artifact.bad',
@@ -150,6 +174,12 @@ describe('ArtifactExecutor (E7)', () => {
 			kind: 'artifact',
 			operation: 'merge:analysis.summary',
 		};
+		const reservedNameStep: ArtifactStepDefinition = {
+			id: 'artifact.reserved',
+			input: 'analysis',
+			kind: 'artifact',
+			operation: 'copy:__proto__',
+		};
 
 		await expect(
 			executor.execute(unsupportedStep, createTestContext()),
@@ -160,6 +190,25 @@ describe('ArtifactExecutor (E7)', () => {
 			executor.execute(invalidMergeStep, createTestContext()),
 		).rejects.toThrow(
 			'Artifact "analysis.summary" was not found in execution context',
+		);
+		await expect(
+			executor.execute(reservedNameStep, createTestContext()),
+		).rejects.toThrow(
+			'Artifact step "artifact.reserved" uses a reserved output name',
+		);
+	});
+
+	it('does not expose prototype-chain values through extract paths', async () => {
+		const executor = new ArtifactExecutor();
+		const step: ArtifactStepDefinition = {
+			id: 'artifact.extract',
+			input: 'analysis',
+			kind: 'artifact',
+			operation: 'extract:__proto__.polluted',
+		};
+
+		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
+			'Artifact field "__proto__.polluted" was not found',
 		);
 	});
 });
