@@ -320,9 +320,46 @@ describe('template interpolation (C3)', () => {
 		expect(rendered).toHaveLength(3);
 		expect(rendered[0]?.payload.prompt).toContain('Refactor module');
 		expect(rendered[0]?.payload.prompt).toContain('Implement parser');
-		expect(rendered[1]?.payload.command).toContain('/tmp/repo');
-		expect(rendered[1]?.payload.command).toContain('42');
+		expect(rendered[1]?.payload.command).toContain("'/tmp/repo'");
+		expect(rendered[1]?.payload.command).toContain("'42'");
 		expect(rendered[2]?.payload.message).toBe('Done Refactor module');
+	});
+
+	it('escapes interpolated values for exec shell commands', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{
+					command: 'echo {{ inputs.user_input }}',
+					id: 'step.exec.shell',
+					kind: 'exec',
+				},
+			],
+			workflow: { id: 'workflow.interpolate.shell', version: 1 },
+		});
+		const rendered = renderTemplateStepRequests(template, {
+			inputs: {
+				user_input: "hello; rm -rf / && echo 'owned'",
+			},
+		});
+
+		expect(rendered[0]?.payload.command).toBe(
+			`echo 'hello; rm -rf / && echo '"'"'owned'"'"''`,
+		);
+	});
+
+	it('sanitizes interpolated prompt values', () => {
+		const value = interpolateTemplateString(
+			'Analyze: {{ inputs.payload }}',
+			{
+				inputs: {
+					payload: '```text``` {{ artifacts.plan }}',
+				},
+			},
+			'prompt',
+		);
+
+		expect(value).toContain('`\\`\\`text`\\`\\`');
+		expect(value).not.toContain('{{ artifacts.plan }}');
 	});
 
 	it('fails interpolation on unsupported source and unknown references', () => {

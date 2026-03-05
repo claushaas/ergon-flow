@@ -54,6 +54,8 @@ export interface RenderedStepRequest {
 	stepId: string;
 }
 
+type InterpolationTarget = 'prompt' | 'shell' | 'text';
+
 const STEP_KIND_SET: ReadonlySet<string> = new Set(STEP_KINDS);
 const PROVIDER_SET: ReadonlySet<string> = new Set(PROVIDERS);
 
@@ -552,6 +554,32 @@ function stringifyInterpolationValue(value: unknown): string {
 	return String(value);
 }
 
+function escapeShellArgument(value: string): string {
+	return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function sanitizePromptValue(value: string): string {
+	return value
+		.replaceAll('\u0000', '')
+		.replaceAll('```', '`\\`\\`')
+		.replaceAll('{{', '\\{{')
+		.replaceAll('}}', '\\}}');
+}
+
+function formatInterpolationValue(
+	value: unknown,
+	target: InterpolationTarget,
+): string {
+	const rendered = stringifyInterpolationValue(value);
+	if (target === 'shell') {
+		return escapeShellArgument(rendered);
+	}
+	if (target === 'prompt') {
+		return sanitizePromptValue(rendered);
+	}
+	return rendered;
+}
+
 function resolveInterpolationReference(
 	reference: string,
 	context: TemplateInterpolationContext,
@@ -582,27 +610,13 @@ function resolveInterpolationReference(
 export function interpolateTemplateString(
 	templateValue: string,
 	context: TemplateInterpolationContext,
+	target: InterpolationTarget = 'text',
 ): string {
-	const matches = Array.from(templateValue.matchAll(INTERPOLATION_PATTERN));
-	if (matches.length === 0) {
-		return templateValue;
-	}
-
-	const singleMatch = matches.length === 1 ? matches[0] : undefined;
-	if (
-		singleMatch &&
-		singleMatch[0].trim() === templateValue.trim() &&
-		typeof singleMatch[1] === 'string'
-	) {
-		const value = resolveInterpolationReference(singleMatch[1], context);
-		return stringifyInterpolationValue(value);
-	}
-
 	return templateValue.replace(
 		INTERPOLATION_PATTERN,
 		(_match, reference: string) => {
 			const value = resolveInterpolationReference(reference, context);
-			return stringifyInterpolationValue(value);
+			return formatInterpolationValue(value, target);
 		},
 	);
 }
@@ -615,16 +629,16 @@ export function renderStepRequestPayload(
 		case 'agent':
 			return {
 				prompt: step.prompt
-					? interpolateTemplateString(step.prompt, context)
+					? interpolateTemplateString(step.prompt, context, 'prompt')
 					: undefined,
 			};
 		case 'exec':
 			return {
-				command: interpolateTemplateString(step.command, context),
+				command: interpolateTemplateString(step.command, context, 'shell'),
 			};
 		case 'notify':
 			return {
-				message: interpolateTemplateString(step.message, context),
+				message: interpolateTemplateString(step.message, context, 'prompt'),
 			};
 		default:
 			return {};
