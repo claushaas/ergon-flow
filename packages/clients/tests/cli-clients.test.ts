@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	ClaudeCodeAgentClient,
 	CodexAgentClient,
-	OpenClawAgentClient,
 	createClientRegistry,
+	OpenClawAgentClient,
 } from '../src/index.js';
 
 describe('CLI agent clients (D3)', () => {
@@ -20,8 +20,8 @@ describe('CLI agent clients (D3)', () => {
 		});
 
 		const result = await client.run({
-			provider: 'codex',
 			prompt: 'Review this patch',
+			provider: 'codex',
 		});
 
 		expect(result.text).toBe('codex-result');
@@ -79,8 +79,8 @@ describe('CLI agent clients (D3)', () => {
 		});
 
 		const result = await client.run({
-			provider: 'openclaw',
 			prompt: 'Plan this task',
+			provider: 'openclaw',
 		});
 
 		expect(result.text).toBe('openclaw-result');
@@ -104,8 +104,8 @@ describe('CLI agent clients (D3)', () => {
 
 		await expect(
 			client.run({
-				provider: 'codex',
 				prompt: 'Review this patch',
+				provider: 'codex',
 			}),
 		).rejects.toThrow('Codex command failed (2): invalid flag');
 	});
@@ -122,8 +122,8 @@ describe('CLI agent clients (D3)', () => {
 
 		await expect(
 			client.run({
-				provider: 'claude-code',
 				prompt: 'Review this patch',
+				provider: 'claude-code',
 			}),
 		).rejects.toThrow('Claude Code command produced empty output');
 	});

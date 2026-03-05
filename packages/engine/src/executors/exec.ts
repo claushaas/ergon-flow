@@ -1,7 +1,12 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { ExecStepDefinition } from '@ergon/shared';
-import { interpolateTemplateString, renderStepRequestPayload } from '../templating/index.js';
+import {
+	interpolateTemplateString,
+	renderStepRequestPayload,
+} from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
+
+export const DEFAULT_EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 export interface ExecSpawnResult {
 	code: number | null;
@@ -20,33 +25,78 @@ export interface ExecExecutorOptions {
 	spawn?: ExecSpawn;
 }
 
-async function defaultSpawn(options: {
-	command: string;
-	cwd?: string;
-	env?: Record<string, string>;
-}): Promise<ExecSpawnResult> {
+function createOutputLimitError(stream: 'stderr' | 'stdout'): Error {
+	return new Error(
+		`Exec command ${stream} exceeded ${DEFAULT_EXEC_MAX_OUTPUT_BYTES} bytes`,
+	);
+}
+
+function decodeOutput(chunks: Buffer[]): string {
+	return Buffer.concat(chunks).toString('utf8');
+}
+
+function normalizeChunk(chunk: string | Buffer): Buffer {
+	return Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+}
+
+export async function defaultSpawn(
+	options: {
+		command: string;
+		cwd?: string;
+		env?: Record<string, string>;
+	},
+	spawnImpl: typeof nodeSpawn = nodeSpawn,
+): Promise<ExecSpawnResult> {
 	return await new Promise<ExecSpawnResult>((resolve, reject) => {
-		const child = nodeSpawn('bash', ['-lc', options.command], {
+		const child = spawnImpl('bash', ['-c', options.command], {
 			cwd: options.cwd,
-			env: options.env ? { ...process.env, ...options.env } : process.env,
+			env: options.env ? { ...options.env } : {},
 			stdio: 'pipe',
 		});
-		let stdout = '';
-		let stderr = '';
+		const stdoutChunks: Buffer[] = [];
+		const stderrChunks: Buffer[] = [];
+		let stdoutBytes = 0;
+		let stderrBytes = 0;
+		let settled = false;
+
+		const fail = (error: Error) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			child.kill('SIGTERM');
+			reject(error);
+		};
 
 		child.stdout.on('data', (chunk) => {
-			stdout += chunk.toString();
+			const normalized = normalizeChunk(chunk);
+			stdoutBytes += normalized.byteLength;
+			if (stdoutBytes > DEFAULT_EXEC_MAX_OUTPUT_BYTES) {
+				fail(createOutputLimitError('stdout'));
+				return;
+			}
+			stdoutChunks.push(normalized);
 		});
 		child.stderr.on('data', (chunk) => {
-			stderr += chunk.toString();
+			const normalized = normalizeChunk(chunk);
+			stderrBytes += normalized.byteLength;
+			if (stderrBytes > DEFAULT_EXEC_MAX_OUTPUT_BYTES) {
+				fail(createOutputLimitError('stderr'));
+				return;
+			}
+			stderrChunks.push(normalized);
 		});
-		child.on('error', reject);
+		child.on('error', fail);
 		child.on('close', (code, signal) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
 			resolve({
 				code,
 				signal,
-				stderr,
-				stdout,
+				stderr: decodeOutput(stderrChunks),
+				stdout: decodeOutput(stdoutChunks),
 			});
 		});
 	});
@@ -94,11 +144,12 @@ export class ExecExecutor implements Executor<ExecStepDefinition> {
 			cwd,
 			env,
 		});
+		const envKeys = env ? Object.keys(env).sort() : [];
 		const normalizedResult = {
 			code: result.code,
 			command: payload.command,
 			cwd,
-			env,
+			envKeys,
 			signal: result.signal,
 			stderr: result.stderr,
 			stdout: result.stdout,
@@ -106,11 +157,6 @@ export class ExecExecutor implements Executor<ExecStepDefinition> {
 
 		return {
 			artifacts: [
-				{
-					name: step.id,
-					type: 'json',
-					value: normalizedResult,
-				},
 				{
 					name: `${step.id}.stdout`,
 					type: 'text',

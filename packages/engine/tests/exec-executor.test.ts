@@ -1,6 +1,12 @@
+import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import type { ExecStepDefinition } from '@ergon/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { ExecExecutor } from '../src/executors/exec.js';
+import {
+	DEFAULT_EXEC_MAX_OUTPUT_BYTES,
+	defaultSpawn,
+	ExecExecutor,
+} from '../src/executors/exec.js';
 import { createExecutionContext } from '../src/executors/index.js';
 
 describe('ExecExecutor (E3)', () => {
@@ -52,19 +58,6 @@ describe('ExecExecutor (E3)', () => {
 		expect(result).toEqual({
 			artifacts: [
 				{
-					name: 'tests_exec',
-					type: 'json',
-					value: {
-						code: 0,
-						command: "echo 'done'",
-						cwd: '/workspace/repo',
-						env: { REPORT_NAME: 'parser' },
-						signal: null,
-						stderr: 'warn\n',
-						stdout: 'ok\n',
-					},
-				},
-				{
 					name: 'tests_exec.stdout',
 					type: 'text',
 					value: 'ok\n',
@@ -81,7 +74,7 @@ describe('ExecExecutor (E3)', () => {
 						code: 0,
 						command: "echo 'done'",
 						cwd: '/workspace/repo',
-						env: { REPORT_NAME: 'parser' },
+						envKeys: ['REPORT_NAME'],
 						signal: null,
 						stderr: 'warn\n',
 						stdout: 'ok\n',
@@ -92,7 +85,7 @@ describe('ExecExecutor (E3)', () => {
 				code: 0,
 				command: "echo 'done'",
 				cwd: '/workspace/repo',
-				env: { REPORT_NAME: 'parser' },
+				envKeys: ['REPORT_NAME'],
 				signal: null,
 				stderr: 'warn\n',
 				stdout: 'ok\n',
@@ -133,5 +126,68 @@ describe('ExecExecutor (E3)', () => {
 			code: 2,
 			stderr: 'boom\n',
 		});
+	});
+
+	it('uses a non-login shell with only step env in defaultSpawn', async () => {
+		const stdout = new EventEmitter();
+		const stderr = new EventEmitter();
+		const child = new EventEmitter() as ChildProcess;
+		child.stdout = stdout as ChildProcess['stdout'];
+		child.stderr = stderr as ChildProcess['stderr'];
+		const spawnMock = vi.fn().mockReturnValue(child);
+
+		const spawnPromise = defaultSpawn(
+			{
+				command: 'echo ok',
+				cwd: '/workspace/repo',
+				env: {
+					REPORT_NAME: 'parser',
+				},
+			},
+			spawnMock,
+		);
+
+		stdout.emit('data', Buffer.from('ok\n'));
+		stderr.emit('data', Buffer.from('warn\n'));
+		child.emit('close', 0, null);
+
+		await expect(spawnPromise).resolves.toEqual({
+			code: 0,
+			signal: null,
+			stderr: 'warn\n',
+			stdout: 'ok\n',
+		});
+		expect(spawnMock).toHaveBeenCalledWith('bash', ['-c', 'echo ok'], {
+			cwd: '/workspace/repo',
+			env: {
+				REPORT_NAME: 'parser',
+			},
+			stdio: 'pipe',
+		});
+	});
+
+	it('rejects when stdout exceeds the configured output limit', async () => {
+		const stdout = new EventEmitter();
+		const stderr = new EventEmitter();
+		const kill = vi.fn();
+		const child = new EventEmitter() as ChildProcess;
+		child.kill = kill;
+		child.stdout = stdout as ChildProcess['stdout'];
+		child.stderr = stderr as ChildProcess['stderr'];
+		const spawnMock = vi.fn().mockReturnValue(child);
+
+		const spawnPromise = defaultSpawn(
+			{
+				command: 'python huge.py',
+			},
+			spawnMock,
+		);
+
+		stdout.emit('data', Buffer.alloc(1024 * 1024 + 1, 'a'));
+
+		await expect(spawnPromise).rejects.toThrow(
+			`Exec command stdout exceeded ${DEFAULT_EXEC_MAX_OUTPUT_BYTES} bytes`,
+		);
+		expect(kill).toHaveBeenCalledWith('SIGTERM');
 	});
 });
