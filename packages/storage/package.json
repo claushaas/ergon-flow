@@ -6,6 +6,6 @@
 	"types": "dist/index.d.ts",
 	"scripts": {
 		"build": "tsc --build",
-		"test": "echo storage tests placeholder"
+		"test": "vitest run"
 	}
 }

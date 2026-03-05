@@ -1,1 +1,1 @@
-// TODO: storage entry
+export * from './paths.js';
