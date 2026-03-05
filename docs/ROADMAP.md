@@ -222,7 +222,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
 
 ---
 
-## Scope E — Executors (step types)
+## Scope E — Executors (step types) - ✅
 
 ### Phase E1 — Executor framework - ✅
 
