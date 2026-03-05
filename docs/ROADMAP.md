@@ -173,7 +173,7 @@ Deliverable: a storage-only test can enqueue and claim a run safely with two sim
 
 ## Scope C — Template loading and validation
 
-### Phase C1 — YAML loader
+### Phase C1 — YAML loader - ✅
 
 - Load YAML templates from `/templates`
 - Normalize template structure (`workflow`, `inputs`, `steps`, `outputs`)

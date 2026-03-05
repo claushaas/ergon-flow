@@ -1,3 +1,5 @@
-export function runWorkflow(workflowId: string) {
-  // TODO: workflow execution
+export * from './templating/index.js';
+
+export function runWorkflow(_workflowId: string) {
+	// TODO: workflow execution
 }
