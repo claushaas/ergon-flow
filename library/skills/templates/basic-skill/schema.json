@@ -1,0 +1,42 @@
+{
+  "input": {
+    "type": "object",
+    "required": ["input_field"],
+    "properties": {
+      "input_field": {
+        "type": "string",
+        "description": "The main input field for the skill",
+        "minLength": 1,
+        "maxLength": 10000
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "required": ["result"],
+    "properties": {
+      "result": {
+        "type": "string",
+        "description": "The result of processing"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata about the processing",
+        "properties": {
+          "length": {
+            "type": "integer"
+          },
+          "words": {
+            "type": "integer"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        }
+      }
+    },
+    "additionalProperties": false
+  }
+}

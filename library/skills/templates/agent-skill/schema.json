@@ -1,0 +1,71 @@
+{
+  "input": {
+    "type": "object",
+    "required": ["context", "instruction"],
+    "properties": {
+      "context": {
+        "type": "string",
+        "description": "Contextual information needed for the task",
+        "minLength": 10,
+        "maxLength": 50000
+      },
+      "instruction": {
+        "type": "string",
+        "description": "Specific instruction or query",
+        "minLength": 5,
+        "maxLength": 10000
+      },
+      "options": {
+        "type": "object",
+        "description": "Optional configuration for skill execution",
+        "properties": {
+          "detail_level": {
+            "type": "string",
+            "enum": ["brief", "standard", "detailed"],
+            "default": "standard"
+          },
+          "format_preference": {
+            "type": "string",
+            "enum": ["text", "markdown", "code"],
+            "default": "markdown"
+          }
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "required": ["status", "content"],
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["success", "partial", "failed"],
+        "description": "Execution status"
+      },
+      "content": {
+        "type": "string",
+        "description": "Main output content"
+      },
+      "insights": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of insights or findings",
+        "minItems": 0,
+        "maxItems": 20
+      },
+      "recommendations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Suggested next steps",
+        "minItems": 0,
+        "maxItems": 20
+      }
+    },
+    "additionalProperties": false
+  }
+}

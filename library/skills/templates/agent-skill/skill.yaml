@@ -1,0 +1,65 @@
+id: agent-skill-template
+name: Agent-Based Skill Template
+description: A template for skills that use external agents for complex processing
+
+version: 1.0.0
+
+# Choose the appropriate agent for the task
+agent: coder
+
+# Provider configuration
+provider: anthropic/claude-opus
+
+config:
+  temperature: 0.7
+  max_tokens: 4096
+
+# Input schema with multiple fields
+input:
+  type: object
+  required:
+    - context
+    - instruction
+  properties:
+    context:
+      type: string
+      description: Contextual information needed to execute the task
+    instruction:
+      type: string
+      description: Specific instruction or query
+    options:
+      type: object
+      description: Optional configuration for the skill execution
+
+# Output schema with structured results
+output:
+  type: object
+  required:
+    - status
+    - content
+  properties:
+    status:
+      type: string
+      enum: [success, partial, failed]
+      description: Execution status
+    content:
+      type: string
+      description: Main output content
+    insights:
+      type: array
+      description: List of insights or findings
+    recommendations:
+      type: array
+      description: Suggested next steps or improvements
+
+# Reference to the prompt template
+prompt: ./prompt.md
+
+# Configuration examples
+examples:
+  - name: Basic execution
+    input: ./examples/basic.input.json
+    output: ./examples/basic.output.json
+  - name: Complex scenario
+    input: ./examples/complex.input.json
+    output: ./examples/complex.output.json

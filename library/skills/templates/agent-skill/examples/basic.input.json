@@ -1,0 +1,8 @@
+{
+  "context": "We have a Node.js application with authentication issues in the login flow",
+  "instruction": "Analyze the authentication problem and suggest solutions",
+  "options": {
+    "detail_level": "detailed",
+    "format_preference": "markdown"
+  }
+}
