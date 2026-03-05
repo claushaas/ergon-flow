@@ -19,6 +19,17 @@ export interface WorkflowRow {
 	version: number;
 }
 
+export function getWorkflow(
+	db: DatabaseSync,
+	workflowId: string,
+	version: number,
+): WorkflowRow | null {
+	const row = db
+		.prepare('SELECT * FROM workflows WHERE id = ? AND version = ?;')
+		.get(workflowId, version);
+	return (row as WorkflowRow | undefined) ?? null;
+}
+
 export function registerWorkflow(
 	db: DatabaseSync,
 	input: RegisterWorkflowInput,

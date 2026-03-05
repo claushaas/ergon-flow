@@ -278,7 +278,7 @@ Deliverable: engine can execute a workflow with `agent + exec + condition + manu
 
 ## Scope F — Workflow Engine (sequential runner)
 
-### Phase F1 — Engine core loop
+### Phase F1 — Engine core loop - ✅
 
 - `executeRun(run_id, worker_id)`
 - Load run + workflow template

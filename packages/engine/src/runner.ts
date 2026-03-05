@@ -1,0 +1,746 @@
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import type {
+	StepDefinition,
+	StepRunStatus,
+	WorkflowTemplate,
+} from '@ergon/shared';
+import {
+	appendEvent,
+	artifactPath,
+	artifactsDir,
+	createStepRun,
+	getRun,
+	getWorkflow,
+	insertArtifact,
+	listArtifacts,
+	listStepRuns,
+	markRunFailed,
+	markRunSucceeded,
+	markRunWaitingManual,
+	updateRunCursor,
+	updateStepRunStatus,
+} from '@ergon/storage';
+import type {
+	Executor,
+	ExecutorArtifact,
+	ExecutorResult,
+} from './executors/index.js';
+import {
+	createExecutionContext,
+	type ExecutorRegistry,
+} from './executors/index.js';
+import {
+	interpolateTemplateString,
+	loadAndValidateTemplateFromFile,
+	renderStepRequestPayload,
+} from './templating/index.js';
+
+const EXACT_INTERPOLATION_PATTERN = /^{{\s*([^{}]+?)\s*}}$/;
+
+export interface ExecuteRunOptions {
+	artifactBaseDir?: string;
+	db: DatabaseSync;
+	executors: ExecutorRegistry;
+	rootDir?: string;
+}
+
+interface ResolvedRunState {
+	artifacts: Record<string, unknown>;
+	completedSteps: Map<string, { output: unknown; status: StepRunStatus }>;
+	nextStepIndex: number;
+}
+
+function parseJson<T>(value: string | null, fallback: T): T {
+	if (!value) {
+		return fallback;
+	}
+	return JSON.parse(value) as T;
+}
+
+function getStepExecutor(
+	executors: ExecutorRegistry,
+	step: StepDefinition,
+): Executor<StepDefinition> {
+	return executors.get(step.kind);
+}
+
+function getStepAttempt(
+	stepId: string,
+	stepRuns: ReturnType<typeof listStepRuns>,
+): number {
+	return (
+		Math.max(
+			0,
+			...stepRuns
+				.filter((stepRun) => stepRun.step_id === stepId)
+				.map((stepRun) => stepRun.attempt),
+		) + 1
+	);
+}
+
+function buildCompletedSteps(
+	stepRuns: ReturnType<typeof listStepRuns>,
+): Map<string, { output: unknown; status: StepRunStatus }> {
+	const latestByStep = new Map<
+		string,
+		{ attempt: number; output: unknown; status: StepRunStatus }
+	>();
+
+	for (const stepRun of stepRuns) {
+		const current = latestByStep.get(stepRun.step_id);
+		if (current && current.attempt >= stepRun.attempt) {
+			continue;
+		}
+		latestByStep.set(stepRun.step_id, {
+			attempt: stepRun.attempt,
+			output: parseJson(stepRun.output_json, null),
+			status: stepRun.status,
+		});
+	}
+
+	return new Map(
+		Array.from(latestByStep.entries()).map(([stepId, value]) => [
+			stepId,
+			{
+				output: value.output,
+				status: value.status,
+			},
+		]),
+	);
+}
+
+function getArtifactFilePath(
+	rootDir: string,
+	artifactRow: ReturnType<typeof listArtifacts>[number],
+): string {
+	return path.isAbsolute(artifactRow.path)
+		? artifactRow.path
+		: path.resolve(rootDir, artifactRow.path);
+}
+
+function restoreArtifacts(
+	artifactBaseDir: string,
+	runArtifacts: ReturnType<typeof listArtifacts>,
+): Record<string, unknown> {
+	const restored: Record<string, unknown> = {};
+
+	for (const artifact of runArtifacts) {
+		const artifactFile = getArtifactFilePath(artifactBaseDir, artifact);
+		if (!existsSync(artifactFile)) {
+			continue;
+		}
+
+		const content = readFileSync(artifactFile, 'utf8');
+		restored[artifact.name] =
+			artifact.type === 'text' ? content : JSON.parse(content);
+	}
+
+	return restored;
+}
+
+function resolveNextStepIndex(
+	template: WorkflowTemplate,
+	completedSteps: Map<string, { output: unknown; status: StepRunStatus }>,
+	currentStepIndex: number,
+): number {
+	let nextStepIndex = Math.max(0, currentStepIndex);
+
+	while (nextStepIndex < template.steps.length) {
+		const step = template.steps[nextStepIndex];
+		if (!step) {
+			break;
+		}
+
+		const previous = completedSteps.get(step.id);
+		if (previous?.status === 'skipped' || previous?.status === 'succeeded') {
+			nextStepIndex += 1;
+			continue;
+		}
+
+		break;
+	}
+
+	return nextStepIndex;
+}
+
+function resolveRunState(
+	artifactBaseDir: string,
+	template: WorkflowTemplate,
+	run: NonNullable<ReturnType<typeof getRun>>,
+	db: DatabaseSync,
+): ResolvedRunState {
+	const stepRuns = listStepRuns(db, run.id);
+	const completedSteps = buildCompletedSteps(stepRuns);
+	return {
+		artifacts: restoreArtifacts(artifactBaseDir, listArtifacts(db, run.id)),
+		completedSteps,
+		nextStepIndex: resolveNextStepIndex(
+			template,
+			completedSteps,
+			run.current_step_index,
+		),
+	};
+}
+
+function buildRequestSnapshot(
+	step: StepDefinition,
+	context: ReturnType<typeof createExecutionContext>,
+): Record<string, unknown> | undefined {
+	switch (step.kind) {
+		case 'agent':
+			return {
+				model: step.model,
+				provider: step.provider,
+				...renderStepRequestPayload(step, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				}),
+			};
+		case 'exec':
+			return {
+				command: renderStepRequestPayload(step, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				}).command,
+				cwd: step.cwd
+					? interpolateTemplateString(step.cwd, {
+							artifacts: context.artifacts,
+							inputs: context.inputs,
+						})
+					: undefined,
+				env: step.env
+					? Object.fromEntries(
+							Object.entries(step.env).map(([key, value]) => [
+								key,
+								interpolateTemplateString(value, {
+									artifacts: context.artifacts,
+									inputs: context.inputs,
+								}),
+							]),
+						)
+					: undefined,
+			};
+		case 'condition':
+			return {
+				expression: interpolateTemplateString(step.expression, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				}),
+			};
+		case 'manual':
+			return {
+				message: step.message?.trim() || undefined,
+			};
+		case 'notify':
+			return {
+				...renderStepRequestPayload(step, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				}),
+				channel: step.channel,
+				target: step.target
+					? interpolateTemplateString(step.target, {
+							artifacts: context.artifacts,
+							inputs: context.inputs,
+						})
+					: undefined,
+			};
+		case 'artifact':
+			return {
+				input: step.input,
+				operation: step.operation,
+			};
+		default: {
+			const exhaustive: never = step;
+			void exhaustive;
+			return undefined;
+		}
+	}
+}
+
+function shouldSkipStep(
+	step: StepDefinition,
+	completedSteps: Map<string, { output: unknown; status: StepRunStatus }>,
+): boolean {
+	const dependencies = step.depends_on ?? [];
+	if (dependencies.length === 0) {
+		return false;
+	}
+
+	for (const dependency of dependencies) {
+		const state = completedSteps.get(dependency);
+		if (!state) {
+			return false;
+		}
+		if (state.status === 'skipped') {
+			return true;
+		}
+		if (
+			state.status === 'succeeded' &&
+			isConditionOutput(state.output) &&
+			state.output.passed === false
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function isConditionOutput(value: unknown): value is { passed: boolean } {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+	return (
+		'passed' in value &&
+		typeof (value as { passed?: unknown }).passed === 'boolean'
+	);
+}
+
+function getArtifactFileName(artifact: ExecutorArtifact): string {
+	switch (artifact.type) {
+		case 'text':
+			return `${artifact.name}.txt`;
+		default:
+			return `${artifact.name}.json`;
+	}
+}
+
+function toArtifactFileContent(artifact: ExecutorArtifact): string {
+	if (artifact.type === 'text' && typeof artifact.value === 'string') {
+		return artifact.value;
+	}
+	return JSON.stringify(artifact.value, null, 2);
+}
+
+function toStoragePath(rootDir: string, filePath: string): string {
+	return path.relative(rootDir, filePath).split(path.sep).join('/');
+}
+
+function persistArtifacts(
+	db: DatabaseSync,
+	rootDir: string,
+	runId: string,
+	stepRunId: string,
+	artifacts: ExecutorArtifact[],
+): Record<string, unknown> {
+	const stored: Record<string, unknown> = {};
+
+	for (const artifact of artifacts) {
+		const artifactFile = artifactPath(
+			rootDir,
+			runId,
+			getArtifactFileName(artifact),
+		);
+		mkdirSync(path.dirname(artifactFile), { recursive: true });
+		const content = toArtifactFileContent(artifact);
+		writeFileSync(artifactFile, content, 'utf8');
+		const buffer = Buffer.from(content, 'utf8');
+
+		insertArtifact(db, {
+			meta: null,
+			name: artifact.name,
+			path: toStoragePath(rootDir, artifactFile),
+			runId,
+			sha256: createHash('sha256').update(buffer).digest('hex'),
+			sizeBytes: buffer.byteLength,
+			stepRunId,
+			type: artifact.type,
+		});
+		stored[artifact.name] = artifact.value;
+	}
+
+	return stored;
+}
+
+function appendStepEvents(
+	db: DatabaseSync,
+	runId: string,
+	stepRunId: string,
+	workerId: string,
+	events: ExecutorResult['events'],
+): void {
+	for (const event of events ?? []) {
+		appendEvent(db, runId, event.type, event.payload, {
+			actor: `worker:${workerId}`,
+			stepRunId,
+		});
+	}
+}
+
+function resolveReferenceValue(
+	reference: string,
+	inputs: Record<string, unknown>,
+	artifacts: Record<string, unknown>,
+): unknown {
+	const [root, ...pathParts] = reference.trim().split('.');
+	const source =
+		root === 'inputs' ? inputs : root === 'artifacts' ? artifacts : null;
+	if (!source || pathParts.length === 0) {
+		throw new Error(`Unsupported workflow output reference "${reference}"`);
+	}
+
+	let current: unknown = source;
+	for (const part of pathParts) {
+		if (!current || typeof current !== 'object' || Array.isArray(current)) {
+			throw new Error(`Workflow output reference "${reference}" was not found`);
+		}
+		current = (current as Record<string, unknown>)[part];
+		if (current === undefined) {
+			throw new Error(`Workflow output reference "${reference}" was not found`);
+		}
+	}
+
+	return current;
+}
+
+function resolveWorkflowOutputs(
+	template: WorkflowTemplate,
+	inputs: Record<string, unknown>,
+	artifacts: Record<string, unknown>,
+): Record<string, unknown> {
+	const outputs = template.outputs ?? {};
+	const resolved: Record<string, unknown> = {};
+
+	for (const [key, value] of Object.entries(outputs)) {
+		const exactMatch = value.match(EXACT_INTERPOLATION_PATTERN);
+		if (exactMatch?.[1]) {
+			resolved[key] = resolveReferenceValue(exactMatch[1], inputs, artifacts);
+			continue;
+		}
+
+		resolved[key] = interpolateTemplateString(value, { artifacts, inputs });
+	}
+
+	return resolved;
+}
+
+function markStepFailed(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	stepId: string,
+	stepRunId: string,
+	error: unknown,
+	output?: Record<string, unknown>,
+): never {
+	const errorMessage =
+		error instanceof Error ? error.message : `Step "${stepId}" failed`;
+	const detail =
+		error instanceof Error
+			? {
+					name: error.name,
+					stack: error.stack,
+				}
+			: {
+					error,
+				};
+
+	updateStepRunStatus(db, stepRunId, 'failed', {
+		errorDetail: detail,
+		errorMessage,
+		finishedAt: new Date().toISOString(),
+		output,
+	});
+	appendEvent(
+		db,
+		runId,
+		'step_failed',
+		{
+			error_message: errorMessage,
+			step_id: stepId,
+		},
+		{
+			actor: `worker:${workerId}`,
+			stepRunId,
+		},
+	);
+	appendEvent(
+		db,
+		runId,
+		'workflow_failed',
+		{
+			error_message: errorMessage,
+			step_id: stepId,
+		},
+		{
+			actor: `worker:${workerId}`,
+		},
+	);
+	markRunFailed(db, runId, workerId, {
+		errorDetail: detail,
+		errorMessage,
+	});
+	throw error instanceof Error ? error : new Error(errorMessage);
+}
+
+export async function executeRun(
+	runId: string,
+	workerId: string,
+	options: ExecuteRunOptions,
+) {
+	const rootDir = path.resolve(options.rootDir ?? process.cwd());
+	const artifactBaseDir = path.resolve(options.artifactBaseDir ?? rootDir);
+	const run = getRun(options.db, runId);
+	if (!run) {
+		throw new Error(`Workflow run "${runId}" was not found`);
+	}
+	if (run.status !== 'running' || run.claimed_by !== workerId) {
+		throw new Error(
+			`Workflow run "${runId}" is not claimed by worker "${workerId}"`,
+		);
+	}
+
+	const workflow = getWorkflow(
+		options.db,
+		run.workflow_id,
+		run.workflow_version,
+	);
+	if (!workflow) {
+		throw new Error(
+			`Workflow "${run.workflow_id}"@${run.workflow_version} was not found`,
+		);
+	}
+
+	const templatePath = path.resolve(rootDir, workflow.source_path);
+	const { template } = loadAndValidateTemplateFromFile(templatePath);
+	const inputs = parseJson<Record<string, unknown>>(run.inputs_json, {});
+	const state = resolveRunState(artifactBaseDir, template, run, options.db);
+	const stepRuns = listStepRuns(options.db, run.id);
+
+	mkdirSync(artifactsDir(artifactBaseDir, run.id), { recursive: true });
+
+	for (
+		let stepIndex = state.nextStepIndex;
+		stepIndex < template.steps.length;
+		stepIndex += 1
+	) {
+		const step = template.steps[stepIndex];
+		if (!step) {
+			break;
+		}
+
+		updateRunCursor(options.db, run.id, workerId, stepIndex, step.id);
+
+		const stepAttempt = getStepAttempt(step.id, stepRuns);
+		const context = createExecutionContext({
+			artifacts: state.artifacts,
+			inputs,
+			run: {
+				attempt: stepAttempt,
+				runId: run.id,
+				stepIndex,
+				workerId,
+				workflowId: template.workflow.id,
+				workflowVersion: template.workflow.version,
+			},
+		});
+		const request = buildRequestSnapshot(step, context);
+		const stepRun = createStepRun(
+			options.db,
+			run.id,
+			step.id,
+			stepAttempt,
+			step.kind,
+			{
+				dependsOn: step.depends_on ?? [],
+				request,
+			},
+		);
+
+		if (shouldSkipStep(step, state.completedSteps)) {
+			const skippedOutput = {
+				reason: 'dependency_not_satisfied',
+				skipped_by: step.depends_on ?? [],
+			};
+			updateStepRunStatus(options.db, stepRun.id, 'skipped', {
+				finishedAt: new Date().toISOString(),
+				output: skippedOutput,
+			});
+			appendEvent(
+				options.db,
+				run.id,
+				'step_skipped',
+				{
+					step_id: step.id,
+					...skippedOutput,
+				},
+				{
+					actor: `worker:${workerId}`,
+					stepRunId: stepRun.id,
+				},
+			);
+			state.completedSteps.set(step.id, {
+				output: skippedOutput,
+				status: 'skipped',
+			});
+			updateRunCursor(
+				options.db,
+				run.id,
+				workerId,
+				stepIndex + 1,
+				template.steps[stepIndex + 1]?.id ?? null,
+			);
+			stepRuns.push({
+				...stepRun,
+				output_json: JSON.stringify(skippedOutput),
+				status: 'skipped',
+			});
+			continue;
+		}
+
+		updateStepRunStatus(options.db, stepRun.id, 'running', {
+			request,
+			startedAt: new Date().toISOString(),
+		});
+		appendEvent(
+			options.db,
+			run.id,
+			'step_started',
+			{
+				attempt: stepAttempt,
+				step_id: step.id,
+				step_kind: step.kind,
+			},
+			{
+				actor: `worker:${workerId}`,
+				stepRunId: stepRun.id,
+			},
+		);
+
+		let result: ExecutorResult;
+		try {
+			result = await getStepExecutor(options.executors, step).execute(
+				step,
+				context,
+			);
+		} catch (error) {
+			markStepFailed(options.db, run.id, workerId, step.id, stepRun.id, error);
+		}
+
+		appendStepEvents(options.db, run.id, stepRun.id, workerId, result.events);
+
+		if (result.status === 'failed') {
+			markStepFailed(
+				options.db,
+				run.id,
+				workerId,
+				step.id,
+				stepRun.id,
+				new Error(`Step "${step.id}" returned status failed`),
+				result.outputs,
+			);
+		}
+
+		if (result.status === 'waiting_manual') {
+			updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
+				finishedAt: new Date().toISOString(),
+				output: result.outputs,
+			});
+			markRunWaitingManual(options.db, run.id, workerId);
+			return getRun(options.db, run.id);
+		}
+
+		if (result.status === 'skipped') {
+			updateStepRunStatus(options.db, stepRun.id, 'skipped', {
+				finishedAt: new Date().toISOString(),
+				output: result.outputs,
+			});
+			appendEvent(
+				options.db,
+				run.id,
+				'step_skipped',
+				{
+					step_id: step.id,
+				},
+				{
+					actor: `worker:${workerId}`,
+					stepRunId: stepRun.id,
+				},
+			);
+			state.completedSteps.set(step.id, {
+				output: result.outputs,
+				status: 'skipped',
+			});
+			updateRunCursor(
+				options.db,
+				run.id,
+				workerId,
+				stepIndex + 1,
+				template.steps[stepIndex + 1]?.id ?? null,
+			);
+			stepRuns.push({
+				...stepRun,
+				output_json: JSON.stringify(result.outputs ?? null),
+				status: 'skipped',
+			});
+			continue;
+		}
+
+		const storedArtifacts = persistArtifacts(
+			options.db,
+			artifactBaseDir,
+			run.id,
+			stepRun.id,
+			result.artifacts ?? [],
+		);
+		Object.assign(state.artifacts, storedArtifacts);
+		updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
+			finishedAt: new Date().toISOString(),
+			output: result.outputs,
+		});
+		appendEvent(
+			options.db,
+			run.id,
+			'step_succeeded',
+			{
+				artifact_names: Object.keys(storedArtifacts),
+				step_id: step.id,
+			},
+			{
+				actor: `worker:${workerId}`,
+				stepRunId: stepRun.id,
+			},
+		);
+		state.completedSteps.set(step.id, {
+			output: result.outputs,
+			status: 'succeeded',
+		});
+		updateRunCursor(
+			options.db,
+			run.id,
+			workerId,
+			stepIndex + 1,
+			template.steps[stepIndex + 1]?.id ?? null,
+		);
+		stepRuns.push({
+			...stepRun,
+			output_json: JSON.stringify(result.outputs ?? null),
+			status: 'succeeded',
+		});
+	}
+
+	const workflowResult = resolveWorkflowOutputs(
+		template,
+		inputs,
+		state.artifacts,
+	);
+	appendEvent(
+		options.db,
+		run.id,
+		'workflow_succeeded',
+		{
+			result: workflowResult,
+		},
+		{
+			actor: `worker:${workerId}`,
+		},
+	);
+	markRunSucceeded(options.db, run.id, workerId, {
+		result: workflowResult,
+	});
+	return getRun(options.db, run.id);
+}
