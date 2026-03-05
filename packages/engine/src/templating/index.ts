@@ -9,6 +9,7 @@ import type {
 	WorkflowMetadata,
 	WorkflowTemplate,
 } from '@ergon/shared';
+import { PROVIDERS, STEP_KINDS } from '@ergon/shared';
 import { parse } from 'yaml';
 
 const INPUT_TYPES: ReadonlySet<string> = new Set([
@@ -25,6 +26,19 @@ export interface LoadedTemplate {
 	template: WorkflowTemplate;
 	templatePath: string;
 }
+
+export interface TemplateValidationError {
+	message: string;
+	path: string;
+}
+
+export interface TemplateValidationResult {
+	errors: TemplateValidationError[];
+	valid: boolean;
+}
+
+const STEP_KIND_SET: ReadonlySet<string> = new Set(STEP_KINDS);
+const PROVIDER_SET: ReadonlySet<string> = new Set(PROVIDERS);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -220,4 +234,276 @@ export function loadTemplatesFromWorkspace(
 ): LoadedTemplate[] {
 	const templatesDir = path.join(rootDir, 'templates');
 	return loadTemplatesFromDir(templatesDir);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === 'string' && value.trim().length > 0;
+}
+
+function pushError(
+	errors: TemplateValidationError[],
+	path: string,
+	message: string,
+): void {
+	errors.push({ message, path });
+}
+
+function validateStepRequiredFields(
+	step: StepDefinition,
+	index: number,
+	errors: TemplateValidationError[],
+): void {
+	const stepPath = `steps[${index}]`;
+
+	switch (step.kind) {
+		case 'agent': {
+			if (!isNonEmptyString(step.provider)) {
+				pushError(
+					errors,
+					`${stepPath}.provider`,
+					'agent step requires a non-empty provider',
+				);
+				return;
+			}
+			if (!PROVIDER_SET.has(step.provider)) {
+				pushError(
+					errors,
+					`${stepPath}.provider`,
+					`agent provider "${step.provider}" is not supported`,
+				);
+			}
+			return;
+		}
+		case 'artifact': {
+			if (!isNonEmptyString(step.input)) {
+				pushError(
+					errors,
+					`${stepPath}.input`,
+					'artifact step requires a non-empty input',
+				);
+			}
+			if (!isNonEmptyString(step.operation)) {
+				pushError(
+					errors,
+					`${stepPath}.operation`,
+					'artifact step requires a non-empty operation',
+				);
+			}
+			return;
+		}
+		case 'condition': {
+			if (!isNonEmptyString(step.expression)) {
+				pushError(
+					errors,
+					`${stepPath}.expression`,
+					'condition step requires a non-empty expression',
+				);
+			}
+			return;
+		}
+		case 'exec': {
+			if (!isNonEmptyString(step.command)) {
+				pushError(
+					errors,
+					`${stepPath}.command`,
+					'exec step requires a non-empty command',
+				);
+			}
+			return;
+		}
+		case 'notify': {
+			if (!isNonEmptyString(step.channel)) {
+				pushError(
+					errors,
+					`${stepPath}.channel`,
+					'notify step requires a non-empty channel',
+				);
+			}
+			if (!isNonEmptyString(step.message)) {
+				pushError(
+					errors,
+					`${stepPath}.message`,
+					'notify step requires a non-empty message',
+				);
+			}
+			return;
+		}
+		case 'manual':
+			return;
+		default:
+			return;
+	}
+}
+
+function detectDependencyCycles(
+	template: WorkflowTemplate,
+	errors: TemplateValidationError[],
+): void {
+	const dependencies = new Map<string, string[]>();
+	for (const step of template.steps) {
+		dependencies.set(step.id, step.depends_on ?? []);
+	}
+
+	const visited = new Set<string>();
+	const inStack = new Set<string>();
+	const pathStack: string[] = [];
+
+	const visit = (stepId: string): void => {
+		if (inStack.has(stepId)) {
+			const cycleStart = pathStack.indexOf(stepId);
+			const cyclePath =
+				cycleStart >= 0 ? pathStack.slice(cycleStart).concat(stepId) : [stepId];
+			pushError(
+				errors,
+				'steps',
+				`circular dependency detected: ${cyclePath.join(' -> ')}`,
+			);
+			return;
+		}
+		if (visited.has(stepId)) {
+			return;
+		}
+
+		visited.add(stepId);
+		inStack.add(stepId);
+		pathStack.push(stepId);
+
+		const nextSteps = dependencies.get(stepId) ?? [];
+		for (const nextStepId of nextSteps) {
+			if (!dependencies.has(nextStepId)) {
+				continue;
+			}
+			visit(nextStepId);
+		}
+
+		pathStack.pop();
+		inStack.delete(stepId);
+	};
+
+	for (const stepId of dependencies.keys()) {
+		visit(stepId);
+	}
+}
+
+export function validateTemplate(
+	template: WorkflowTemplate,
+): TemplateValidationResult {
+	const errors: TemplateValidationError[] = [];
+
+	if (!isNonEmptyString(template.workflow.id)) {
+		pushError(errors, 'workflow.id', 'workflow.id is required');
+	}
+	if (
+		!Number.isInteger(template.workflow.version) ||
+		template.workflow.version <= 0
+	) {
+		pushError(
+			errors,
+			'workflow.version',
+			'workflow.version must be a positive integer',
+		);
+	}
+	if (!Array.isArray(template.steps) || template.steps.length === 0) {
+		pushError(errors, 'steps', 'at least one step is required');
+	}
+
+	const stepIds = new Set<string>();
+	for (const [index, step] of template.steps.entries()) {
+		const stepPath = `steps[${index}]`;
+		const stepId = step.id;
+		const stepKind = step.kind;
+
+		if (!isNonEmptyString(stepId)) {
+			pushError(errors, `${stepPath}.id`, 'step.id is required');
+		} else if (stepIds.has(stepId)) {
+			pushError(
+				errors,
+				`${stepPath}.id`,
+				`duplicate step id "${stepId}" is not allowed`,
+			);
+		} else {
+			stepIds.add(stepId);
+		}
+
+		if (!isNonEmptyString(stepKind)) {
+			pushError(errors, `${stepPath}.kind`, 'step.kind is required');
+			continue;
+		}
+
+		if (!STEP_KIND_SET.has(stepKind)) {
+			pushError(
+				errors,
+				`${stepPath}.kind`,
+				`step.kind "${stepKind}" is not supported`,
+			);
+			continue;
+		}
+
+		validateStepRequiredFields(step, index, errors);
+	}
+
+	for (const [index, step] of template.steps.entries()) {
+		const stepPath = `steps[${index}]`;
+		const dependsOn = step.depends_on;
+		if (!dependsOn) {
+			continue;
+		}
+		if (!Array.isArray(dependsOn)) {
+			pushError(
+				errors,
+				`${stepPath}.depends_on`,
+				'depends_on must be an array of step ids',
+			);
+			continue;
+		}
+
+		for (const [dependsIndex, dependency] of dependsOn.entries()) {
+			const dependencyPath = `${stepPath}.depends_on[${dependsIndex}]`;
+			if (!isNonEmptyString(dependency)) {
+				pushError(
+					errors,
+					dependencyPath,
+					'dependency id must be a non-empty string',
+				);
+				continue;
+			}
+			if (!stepIds.has(dependency)) {
+				pushError(
+					errors,
+					dependencyPath,
+					`depends_on references unknown step "${dependency}"`,
+				);
+			}
+			if (dependency === step.id) {
+				pushError(errors, dependencyPath, 'step cannot depend on itself');
+			}
+		}
+	}
+
+	detectDependencyCycles(template, errors);
+
+	return {
+		errors,
+		valid: errors.length === 0,
+	};
+}
+
+export function assertValidTemplate(template: WorkflowTemplate): void {
+	const validation = validateTemplate(template);
+	if (validation.valid) {
+		return;
+	}
+
+	const summary = validation.errors
+		.map((error) => `${error.path}: ${error.message}`)
+		.join('; ');
+	throw new Error(`Template validation failed: ${summary}`);
+}
+
+export function loadAndValidateTemplateFromFile(
+	templatePath: string,
+): LoadedTemplate {
+	const loaded = loadTemplateFromFile(templatePath);
+	assertValidTemplate(loaded.template);
+	return loaded;
 }

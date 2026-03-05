@@ -3,10 +3,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+	assertValidTemplate,
+	loadAndValidateTemplateFromFile,
 	loadTemplateFromFile,
 	loadTemplatesFromDir,
 	loadTemplatesFromWorkspace,
 	normalizeTemplate,
+	validateTemplate,
 } from '../src/templating/index.js';
 
 const tempDirs: string[] = [];
@@ -109,5 +112,167 @@ describe('template loader (C1)', () => {
 			id: 'ok.step',
 			kind: 'exec',
 		});
+	});
+});
+
+describe('template validation (C2)', () => {
+	it('validates a normalized valid template', () => {
+		const template = normalizeTemplate({
+			steps: [{ command: 'echo ok', id: 'step.exec', kind: 'exec' }],
+			workflow: { id: 'workflow.valid', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(true);
+		expect(result.errors).toEqual([]);
+	});
+
+	it('reports required field errors from template metadata and steps', () => {
+		const template = normalizeTemplate({
+			steps: [],
+			workflow: { id: '', version: 0 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((error) => error.path === 'workflow.id')).toBe(
+			true,
+		);
+		expect(
+			result.errors.some((error) => error.path === 'workflow.version'),
+		).toBe(true);
+		expect(result.errors.some((error) => error.path === 'steps')).toBe(true);
+	});
+
+	it('rejects duplicate step ids', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{ command: 'echo one', id: 'dup.step', kind: 'exec' },
+				{ command: 'echo two', id: 'dup.step', kind: 'exec' },
+			],
+			workflow: { id: 'workflow.dup', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('duplicate step id "dup.step"'),
+			),
+		).toBe(true);
+	});
+
+	it('rejects invalid depends_on references', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{ command: 'echo one', id: 'step.one', kind: 'exec' },
+				{
+					command: 'echo two',
+					depends_on: ['step.missing', 'step.two'],
+					id: 'step.two',
+					kind: 'exec',
+				},
+			],
+			workflow: { id: 'workflow.depends', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes(
+					'depends_on references unknown step "step.missing"',
+				),
+			),
+		).toBe(true);
+		expect(
+			result.errors.some((error) => error.message.includes('depend on itself')),
+		).toBe(true);
+	});
+
+	it('rejects circular dependencies across multiple steps', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{
+					command: 'echo a',
+					depends_on: ['step.c'],
+					id: 'step.a',
+					kind: 'exec',
+				},
+				{
+					command: 'echo b',
+					depends_on: ['step.a'],
+					id: 'step.b',
+					kind: 'exec',
+				},
+				{
+					command: 'echo c',
+					depends_on: ['step.b'],
+					id: 'step.c',
+					kind: 'exec',
+				},
+			],
+			workflow: { id: 'workflow.cycle', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('circular dependency detected'),
+			),
+		).toBe(true);
+	});
+
+	it('validates provider fields on agent steps', () => {
+		const missingProvider = normalizeTemplate({
+			steps: [{ id: 'agent.one', kind: 'agent', prompt: 'hello' }],
+			workflow: { id: 'workflow.agent', version: 1 },
+		});
+		const invalidProvider = normalizeTemplate({
+			steps: [
+				{
+					id: 'agent.two',
+					kind: 'agent',
+					prompt: 'hello',
+					provider: 'unknown-provider',
+				},
+			],
+			workflow: { id: 'workflow.agent', version: 1 },
+		});
+
+		const missingResult = validateTemplate(missingProvider);
+		const invalidResult = validateTemplate(invalidProvider);
+		expect(missingResult.valid).toBe(false);
+		expect(
+			missingResult.errors.some((error) => error.path.endsWith('.provider')),
+		).toBe(true);
+		expect(invalidResult.valid).toBe(false);
+		expect(
+			invalidResult.errors.some((error) =>
+				error.message.includes('is not supported'),
+			),
+		).toBe(true);
+	});
+
+	it('throws on invalid template via assert and file loader helper', () => {
+		const invalidTemplate = normalizeTemplate({
+			steps: [{ id: 'agent.bad', kind: 'agent' }],
+			workflow: { id: 'workflow.bad', version: 1 },
+		});
+		expect(() => assertValidTemplate(invalidTemplate)).toThrow(
+			'Template validation failed',
+		);
+
+		const dir = createTempDir();
+		const templatePath = path.join(dir, 'invalid.yaml');
+		writeFileSync(
+			templatePath,
+			`workflow:\n  id: workflow.from.file\n  version: 1\nsteps:\n  - id: agent.file\n    kind: agent\n`,
+			'utf8',
+		);
+		expect(() => loadAndValidateTemplateFromFile(templatePath)).toThrow(
+			'Template validation failed',
+		);
 	});
 });
