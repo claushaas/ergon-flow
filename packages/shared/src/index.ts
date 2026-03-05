@@ -1,3 +1,8 @@
-// @ergon/shared — shared types and contracts
-// Phase A2 will populate this module with TypeScript types aligned to SPEC.md
-export {};
+export * from './artifact.js';
+export * from './client.js';
+export * from './enums.js';
+export * from './errors.js';
+export * from './event.js';
+export * from './run.js';
+export * from './step.js';
+export * from './template.js';
