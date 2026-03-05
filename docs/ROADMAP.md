@@ -248,7 +248,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
 - Produce artifacts:
   - `exec.stdout`, `exec.stderr`, `exec.result`
 
-### Phase E4 — condition executor
+### Phase E4 — condition executor - ✅
 
 - Evaluate expression (minimal):
   - boolean over known values (inputs/artifacts)
