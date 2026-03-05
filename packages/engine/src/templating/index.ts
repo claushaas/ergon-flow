@@ -37,6 +37,25 @@ export interface TemplateValidationResult {
 	valid: boolean;
 }
 
+export interface TemplateInterpolationContext {
+	artifacts?: Record<string, unknown>;
+	inputs: Record<string, unknown>;
+}
+
+export interface StepRequestPayload {
+	command?: string;
+	message?: string;
+	prompt?: string;
+}
+
+export interface RenderedStepRequest {
+	kind: StepDefinition['kind'];
+	payload: StepRequestPayload;
+	stepId: string;
+}
+
+type InterpolationTarget = 'prompt' | 'shell' | 'text';
+
 const STEP_KIND_SET: ReadonlySet<string> = new Set(STEP_KINDS);
 const PROVIDER_SET: ReadonlySet<string> = new Set(PROVIDERS);
 
@@ -506,4 +525,157 @@ export function loadAndValidateTemplateFromFile(
 	const loaded = loadTemplateFromFile(templatePath);
 	assertValidTemplate(loaded.template);
 	return loaded;
+}
+
+const INTERPOLATION_PATTERN = /{{\s*([^{}]+?)\s*}}/g;
+
+function getPathValue(
+	record: Record<string, unknown>,
+	pathParts: string[],
+): unknown | undefined {
+	let current: unknown = record;
+	for (const pathPart of pathParts) {
+		if (!current || typeof current !== 'object' || Array.isArray(current)) {
+			return undefined;
+		}
+		current = (current as Record<string, unknown>)[pathPart];
+	}
+	return current;
+}
+
+function stringifyInterpolationValue(value: unknown): string {
+	if (typeof value === 'string') {
+		return value;
+	}
+	const serialized = JSON.stringify(value);
+	if (typeof serialized === 'string') {
+		return serialized;
+	}
+	return String(value);
+}
+
+function escapeShellArgument(value: string): string {
+	return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function sanitizePromptValue(value: string): string {
+	return value
+		.replaceAll('\u0000', '')
+		.replaceAll('```', '`\\`\\`')
+		.replaceAll('{{', '\\{{')
+		.replaceAll('}}', '\\}}');
+}
+
+function formatInterpolationValue(
+	value: unknown,
+	target: InterpolationTarget,
+): string {
+	const rendered = stringifyInterpolationValue(value);
+	if (target === 'shell') {
+		return escapeShellArgument(rendered);
+	}
+	if (target === 'prompt') {
+		return sanitizePromptValue(rendered);
+	}
+	return rendered;
+}
+
+function resolveInterpolationReference(
+	reference: string,
+	context: TemplateInterpolationContext,
+): unknown {
+	const normalizedReference = reference.trim();
+	if (
+		!normalizedReference.startsWith('inputs.') &&
+		!normalizedReference.startsWith('artifacts.')
+	) {
+		throw new Error(
+			`unsupported interpolation source "${normalizedReference}" (allowed: inputs.*, artifacts.*)`,
+		);
+	}
+
+	const [root, ...pathParts] = normalizedReference.split('.');
+	if (pathParts.length === 0) {
+		throw new Error(`invalid interpolation reference "${normalizedReference}"`);
+	}
+
+	const source = root === 'inputs' ? context.inputs : (context.artifacts ?? {});
+	const value = getPathValue(source, pathParts);
+	if (value === undefined) {
+		throw new Error(`unknown interpolation reference "${normalizedReference}"`);
+	}
+	return value;
+}
+
+export function interpolateTemplateString(
+	templateValue: string,
+	context: TemplateInterpolationContext,
+	target: InterpolationTarget = 'text',
+): string {
+	return templateValue.replace(
+		INTERPOLATION_PATTERN,
+		(_match, reference: string) => {
+			const value = resolveInterpolationReference(reference, context);
+			return formatInterpolationValue(value, target);
+		},
+	);
+}
+
+export function renderStepRequestPayload(
+	step: StepDefinition,
+	context: TemplateInterpolationContext,
+): StepRequestPayload {
+	switch (step.kind) {
+		case 'agent':
+			return {
+				prompt: step.prompt
+					? interpolateTemplateString(step.prompt, context, 'prompt')
+					: undefined,
+			};
+		case 'exec':
+			return {
+				command: interpolateTemplateString(step.command, context, 'shell'),
+			};
+		case 'notify':
+			return {
+				message: interpolateTemplateString(step.message, context, 'prompt'),
+			};
+		default:
+			return {};
+	}
+}
+
+export function renderTemplateStepRequests(
+	template: WorkflowTemplate,
+	context: TemplateInterpolationContext,
+): RenderedStepRequest[] {
+	return template.steps.map((step) => ({
+		kind: step.kind,
+		payload: renderStepRequestPayload(step, context),
+		stepId: step.id,
+	}));
+}
+
+export function validateTemplateInterpolation(
+	template: WorkflowTemplate,
+	context: TemplateInterpolationContext,
+): TemplateValidationResult {
+	const errors: TemplateValidationError[] = [];
+
+	for (const [index, step] of template.steps.entries()) {
+		try {
+			renderStepRequestPayload(step, context);
+		} catch (error) {
+			pushError(
+				errors,
+				`steps[${index}]`,
+				error instanceof Error ? error.message : 'interpolation failed',
+			);
+		}
+	}
+
+	return {
+		errors,
+		valid: errors.length === 0,
+	};
 }
