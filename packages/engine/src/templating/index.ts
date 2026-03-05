@@ -678,7 +678,7 @@ export function renderStepRequestPayload(
 			};
 		case 'notify':
 			return {
-				message: interpolateTemplateString(step.message, context, 'prompt'),
+				message: interpolateTemplateString(step.message, context, 'text'),
 			};
 		default: {
 			const payloadLessKind: 'artifact' | 'condition' | 'manual' = step.kind;

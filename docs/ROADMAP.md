@@ -260,7 +260,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
 - Persist event `manual_waiting`
 - Stop execution loop cleanly
 
-### Phase E6 — notify executor
+### Phase E6 — notify executor - ✅
 
 - Minimal notifier: stdout + optional webhook
 - Optional: OpenClaw `openclaw message send ...` integration later
