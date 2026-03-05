@@ -6,7 +6,7 @@
 	"name": "@ergon/clients",
 	"scripts": {
 		"build": "tsc --build",
-		"test": "echo clients tests placeholder"
+		"test": "vitest run --root ../.. packages/clients/tests"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",

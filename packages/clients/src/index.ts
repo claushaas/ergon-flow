@@ -1,4 +1,10 @@
-import type { ExecutionClient, Provider } from '@ergon/shared';
+import type {
+	AgentResult,
+	ChatMessage,
+	ClientRequest,
+	ExecutionClient,
+	Provider,
+} from '@ergon/shared';
 
 export interface SharedProviderConfig {
 	baseUrl?: string;
@@ -22,6 +28,13 @@ export type ProviderConfig =
 	| RemoteModelProviderConfig;
 
 export type ProviderConfigMap = Partial<Record<Provider, ProviderConfig>>;
+
+export interface OpenRouterClientOptions extends RemoteModelProviderConfig {
+	appName?: string;
+	defaultModel?: string;
+	fetch?: typeof fetch;
+	siteUrl?: string;
+}
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === 'string' && value.trim().length > 0;
@@ -83,6 +96,60 @@ function validateCliConfig(
 	}
 }
 
+function normalizeMessageContent(content: unknown): string {
+	if (typeof content === 'string') {
+		return content;
+	}
+	if (Array.isArray(content)) {
+		return content
+			.map((part) => {
+				if (!part || typeof part !== 'object') {
+					return '';
+				}
+				const text = (part as { text?: unknown }).text;
+				return typeof text === 'string' ? text : '';
+			})
+			.filter((value) => value.length > 0)
+			.join('\n');
+	}
+	return '';
+}
+
+function resolveMessages(request: ClientRequest): ChatMessage[] {
+	if (request.messages && request.messages.length > 0) {
+		return request.messages;
+	}
+	if (isNonEmptyString(request.prompt)) {
+		return [{ content: request.prompt, role: 'user' }];
+	}
+	throw new Error('OpenRouter request must include a prompt or messages');
+}
+
+function resolveTextResult(payload: unknown): string {
+	if (!payload || typeof payload !== 'object') {
+		throw new Error('OpenRouter response must be a JSON object');
+	}
+	const choices = (payload as { choices?: unknown }).choices;
+	if (!Array.isArray(choices) || choices.length === 0) {
+		throw new Error('OpenRouter response did not include any choices');
+	}
+	const firstChoice = choices[0];
+	if (!firstChoice || typeof firstChoice !== 'object') {
+		throw new Error('OpenRouter response choice is invalid');
+	}
+	const message = (firstChoice as { message?: unknown }).message;
+	if (!message || typeof message !== 'object') {
+		throw new Error('OpenRouter response did not include a message');
+	}
+	const text = normalizeMessageContent(
+		(message as { content?: unknown }).content,
+	).trim();
+	if (!text) {
+		throw new Error('OpenRouter response message content is empty');
+	}
+	return text;
+}
+
 export function validateProviderConfig(
 	provider: Provider,
 	config?: ProviderConfig,
@@ -110,6 +177,65 @@ export function validateProviderConfig(
 			const exhaustive: never = provider;
 			void exhaustive;
 		}
+	}
+}
+
+export class OpenRouterModelClient implements ExecutionClient {
+	public readonly provider = 'openrouter' as const;
+	private readonly apiKey: string;
+	private readonly appName?: string;
+	private readonly baseUrl: string;
+	private readonly defaultModel?: string;
+	private readonly fetchImpl: typeof fetch;
+	private readonly siteUrl?: string;
+
+	public constructor(options: OpenRouterClientOptions) {
+		validateProviderConfig('openrouter', options);
+		this.apiKey = options.apiKey;
+		this.appName = options.appName;
+		this.baseUrl = options.baseUrl ?? 'https://openrouter.ai/api/v1';
+		this.defaultModel = options.defaultModel;
+		this.fetchImpl = options.fetch ?? fetch;
+		this.siteUrl = options.siteUrl;
+	}
+
+	public async run(request: ClientRequest): Promise<AgentResult> {
+		const model = request.model ?? this.defaultModel;
+		if (!isNonEmptyString(model)) {
+			throw new Error('OpenRouter request must include a model');
+		}
+
+		const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+			body: JSON.stringify({
+				messages: resolveMessages(request),
+				model,
+				...(request.json_mode
+					? { response_format: { type: 'json_object' } }
+					: {}),
+			}),
+			headers: {
+				Authorization: `Bearer ${this.apiKey}`,
+				'Content-Type': 'application/json',
+				...(this.siteUrl ? { 'HTTP-Referer': this.siteUrl } : {}),
+				...(this.appName ? { 'X-Title': this.appName } : {}),
+			},
+			method: 'POST',
+		});
+
+		if (!response.ok) {
+			const detail = (await response.text()).trim();
+			throw new Error(
+				detail
+					? `OpenRouter request failed (${response.status}): ${detail}`
+					: `OpenRouter request failed (${response.status})`,
+			);
+		}
+
+		const raw = await response.json();
+		return {
+			raw,
+			text: resolveTextResult(raw),
+		};
 	}
 }
 

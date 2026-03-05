@@ -204,7 +204,7 @@ Deliverable: CLI can `template list` and validate templates.
   - `get(provider)`
   - validates provider config
 
-### Phase D2 — OpenRouter ModelClient (v0)
+### Phase D2 — OpenRouter ModelClient (v0) - ✅
 
 - Implement minimal request/response:
   - text-in → text-out
