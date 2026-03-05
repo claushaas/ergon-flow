@@ -37,6 +37,23 @@ export interface TemplateValidationResult {
 	valid: boolean;
 }
 
+export interface TemplateInterpolationContext {
+	artifacts?: Record<string, unknown>;
+	inputs: Record<string, unknown>;
+}
+
+export interface StepRequestPayload {
+	command?: string;
+	message?: string;
+	prompt?: string;
+}
+
+export interface RenderedStepRequest {
+	kind: StepDefinition['kind'];
+	payload: StepRequestPayload;
+	stepId: string;
+}
+
 const STEP_KIND_SET: ReadonlySet<string> = new Set(STEP_KINDS);
 const PROVIDER_SET: ReadonlySet<string> = new Set(PROVIDERS);
 
@@ -506,4 +523,145 @@ export function loadAndValidateTemplateFromFile(
 	const loaded = loadTemplateFromFile(templatePath);
 	assertValidTemplate(loaded.template);
 	return loaded;
+}
+
+const INTERPOLATION_PATTERN = /{{\s*([^{}]+?)\s*}}/g;
+
+function getPathValue(
+	record: Record<string, unknown>,
+	pathParts: string[],
+): unknown | undefined {
+	let current: unknown = record;
+	for (const pathPart of pathParts) {
+		if (!current || typeof current !== 'object' || Array.isArray(current)) {
+			return undefined;
+		}
+		current = (current as Record<string, unknown>)[pathPart];
+	}
+	return current;
+}
+
+function stringifyInterpolationValue(value: unknown): string {
+	if (typeof value === 'string') {
+		return value;
+	}
+	const serialized = JSON.stringify(value);
+	if (typeof serialized === 'string') {
+		return serialized;
+	}
+	return String(value);
+}
+
+function resolveInterpolationReference(
+	reference: string,
+	context: TemplateInterpolationContext,
+): unknown {
+	const normalizedReference = reference.trim();
+	if (
+		!normalizedReference.startsWith('inputs.') &&
+		!normalizedReference.startsWith('artifacts.')
+	) {
+		throw new Error(
+			`unsupported interpolation source "${normalizedReference}" (allowed: inputs.*, artifacts.*)`,
+		);
+	}
+
+	const [root, ...pathParts] = normalizedReference.split('.');
+	if (pathParts.length === 0) {
+		throw new Error(`invalid interpolation reference "${normalizedReference}"`);
+	}
+
+	const source = root === 'inputs' ? context.inputs : (context.artifacts ?? {});
+	const value = getPathValue(source, pathParts);
+	if (value === undefined) {
+		throw new Error(`unknown interpolation reference "${normalizedReference}"`);
+	}
+	return value;
+}
+
+export function interpolateTemplateString(
+	templateValue: string,
+	context: TemplateInterpolationContext,
+): string {
+	const matches = Array.from(templateValue.matchAll(INTERPOLATION_PATTERN));
+	if (matches.length === 0) {
+		return templateValue;
+	}
+
+	const singleMatch = matches.length === 1 ? matches[0] : undefined;
+	if (
+		singleMatch &&
+		singleMatch[0].trim() === templateValue.trim() &&
+		typeof singleMatch[1] === 'string'
+	) {
+		const value = resolveInterpolationReference(singleMatch[1], context);
+		return stringifyInterpolationValue(value);
+	}
+
+	return templateValue.replace(
+		INTERPOLATION_PATTERN,
+		(_match, reference: string) => {
+			const value = resolveInterpolationReference(reference, context);
+			return stringifyInterpolationValue(value);
+		},
+	);
+}
+
+export function renderStepRequestPayload(
+	step: StepDefinition,
+	context: TemplateInterpolationContext,
+): StepRequestPayload {
+	switch (step.kind) {
+		case 'agent':
+			return {
+				prompt: step.prompt
+					? interpolateTemplateString(step.prompt, context)
+					: undefined,
+			};
+		case 'exec':
+			return {
+				command: interpolateTemplateString(step.command, context),
+			};
+		case 'notify':
+			return {
+				message: interpolateTemplateString(step.message, context),
+			};
+		default:
+			return {};
+	}
+}
+
+export function renderTemplateStepRequests(
+	template: WorkflowTemplate,
+	context: TemplateInterpolationContext,
+): RenderedStepRequest[] {
+	return template.steps.map((step) => ({
+		kind: step.kind,
+		payload: renderStepRequestPayload(step, context),
+		stepId: step.id,
+	}));
+}
+
+export function validateTemplateInterpolation(
+	template: WorkflowTemplate,
+	context: TemplateInterpolationContext,
+): TemplateValidationResult {
+	const errors: TemplateValidationError[] = [];
+
+	for (const [index, step] of template.steps.entries()) {
+		try {
+			renderStepRequestPayload(step, context);
+		} catch (error) {
+			pushError(
+				errors,
+				`steps[${index}]`,
+				error instanceof Error ? error.message : 'interpolation failed',
+			);
+		}
+	}
+
+	return {
+		errors,
+		valid: errors.length === 0,
+	};
 }

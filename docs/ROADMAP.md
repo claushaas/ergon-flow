@@ -185,7 +185,7 @@ Deliverable: a storage-only test can enqueue and claim a run safely with two sim
 - Validate `depends_on` references
 - Validate provider fields on `agent` steps
 
-### Phase C3 — Interpolation (minimal)
+### Phase C3 — Interpolation (minimal) - ✅
 
 - Implement interpolation engine with strict rules:
   - allowed sources: `inputs.*`, `artifacts.*`

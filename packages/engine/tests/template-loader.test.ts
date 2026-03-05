@@ -4,12 +4,15 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
 	assertValidTemplate,
+	interpolateTemplateString,
 	loadAndValidateTemplateFromFile,
 	loadTemplateFromFile,
 	loadTemplatesFromDir,
 	loadTemplatesFromWorkspace,
 	normalizeTemplate,
+	renderTemplateStepRequests,
 	validateTemplate,
+	validateTemplateInterpolation,
 } from '../src/templating/index.js';
 
 const tempDirs: string[] = [];
@@ -274,5 +277,97 @@ describe('template validation (C2)', () => {
 		expect(() => loadAndValidateTemplateFromFile(templatePath)).toThrow(
 			'Template validation failed',
 		);
+	});
+});
+
+describe('template interpolation (C3)', () => {
+	it('interpolates inputs and artifacts in step payloads', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{
+					id: 'step.agent',
+					kind: 'agent',
+					prompt:
+						'Task: {{ inputs.task }} / Plan: {{ artifacts.plan.summary }}',
+					provider: 'openrouter',
+				},
+				{
+					command: 'cd {{ inputs.repo.path }} && echo {{ artifacts.value }}',
+					id: 'step.exec',
+					kind: 'exec',
+				},
+				{
+					channel: 'stdout',
+					id: 'step.notify',
+					kind: 'notify',
+					message: 'Done {{ inputs.task }}',
+				},
+			],
+			workflow: { id: 'workflow.interpolate', version: 1 },
+		});
+
+		const rendered = renderTemplateStepRequests(template, {
+			artifacts: {
+				plan: { summary: 'Implement parser' },
+				value: 42,
+			},
+			inputs: {
+				repo: { path: '/tmp/repo' },
+				task: 'Refactor module',
+			},
+		});
+
+		expect(rendered).toHaveLength(3);
+		expect(rendered[0]?.payload.prompt).toContain('Refactor module');
+		expect(rendered[0]?.payload.prompt).toContain('Implement parser');
+		expect(rendered[1]?.payload.command).toContain('/tmp/repo');
+		expect(rendered[1]?.payload.command).toContain('42');
+		expect(rendered[2]?.payload.message).toBe('Done Refactor module');
+	});
+
+	it('fails interpolation on unsupported source and unknown references', () => {
+		expect(() =>
+			interpolateTemplateString('{{ steps.plan.output }}', {
+				artifacts: {},
+				inputs: {},
+			}),
+		).toThrow('unsupported interpolation source');
+
+		expect(() =>
+			interpolateTemplateString('{{ artifacts.plan.missing }}', {
+				artifacts: { plan: { summary: 'ok' } },
+				inputs: {},
+			}),
+		).toThrow('unknown interpolation reference');
+	});
+
+	it('reports interpolation errors through validation helper', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{
+					id: 'step.agent',
+					kind: 'agent',
+					prompt: 'Task {{ inputs.task }}',
+					provider: 'openrouter',
+				},
+				{
+					command: 'echo {{ steps.not_allowed }}',
+					id: 'step.exec',
+					kind: 'exec',
+				},
+			],
+			workflow: { id: 'workflow.interpolate.validation', version: 1 },
+		});
+
+		const result = validateTemplateInterpolation(template, {
+			artifacts: {},
+			inputs: {},
+		});
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('unsupported interpolation source'),
+			),
+		).toBe(true);
 	});
 });
