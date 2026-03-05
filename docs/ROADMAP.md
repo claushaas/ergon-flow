@@ -171,7 +171,7 @@ Deliverable: a storage-only test can enqueue and claim a run safely with two sim
 
 ---
 
-## Scope C — Template loading and validation
+## Scope C — Template loading and validation- ✅
 
 ### Phase C1 — YAML loader - ✅
 
@@ -196,22 +196,22 @@ Deliverable: CLI can `template list` and validate templates.
 
 ---
 
-## Scope D — Execution Clients (adapters)
+## Scope D — Execution Clients (adapters) - ✅
 
-### Phase D1 — Client registry
+### Phase D1 — Client registry - ✅
 
 - Implement `ClientRegistry`:
   - `get(provider)`
   - validates provider config
 
-### Phase D2 — OpenRouter ModelClient (v0)
+### Phase D2 — OpenRouter ModelClient (v0) - ✅
 
 - Implement minimal request/response:
   - text-in → text-out
   - optional JSON mode if needed
 - Normalize into a common `AgentResult` structure
 
-### Phase D3 — Optional adapters (as time permits)
+### Phase D3 — Optional adapters (as time permits) - ✅
 
 - `ollama` (same interface)
 - `openclaw` (spawn `openclaw agent ...`)
