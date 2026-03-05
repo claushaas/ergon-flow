@@ -112,10 +112,17 @@ describe('claim and lease primitives (B3)', () => {
 		expect(renewed?.id).toBe('run-lease');
 		expect(renewed?.lease_until).toBeTruthy();
 
-		const waitingManual = markRunWaitingManual(db, 'run-lease');
+		const waitingManual = markRunWaitingManual(db, 'run-lease', 'worker-1');
 		expect(waitingManual?.status).toBe('waiting_manual');
 		expect(waitingManual?.claimed_by).toBeNull();
 		expect(waitingManual?.lease_until).toBeNull();
+
+		const waitingManualWrongWorker = markRunWaitingManual(
+			db,
+			'run-lease',
+			'worker-2',
+		);
+		expect(waitingManualWrongWorker).toBeNull();
 
 		createRun(
 			db,
@@ -128,11 +135,23 @@ describe('claim and lease primitives (B3)', () => {
 			},
 		);
 		claimNextRun(db, 'worker-1', 30_000);
-		const succeeded = markRunSucceeded(db, 'run-succeed', {
+		const succeededWrongWorker = markRunSucceeded(
+			db,
+			'run-succeed',
+			'worker-2',
+		);
+		expect(succeededWrongWorker).toBeNull();
+		const succeeded = markRunSucceeded(db, 'run-succeed', 'worker-1', {
 			result: { ok: true },
 		});
 		expect(succeeded?.status).toBe('succeeded');
 		expect(succeeded?.finished_at).toBeTruthy();
+		const succeededAfterFinished = markRunSucceeded(
+			db,
+			'run-succeed',
+			'worker-1',
+		);
+		expect(succeededAfterFinished).toBeNull();
 
 		createRun(
 			db,
@@ -145,7 +164,9 @@ describe('claim and lease primitives (B3)', () => {
 			},
 		);
 		claimNextRun(db, 'worker-1', 30_000);
-		const failed = markRunFailed(db, 'run-fail', {
+		const failedWrongWorker = markRunFailed(db, 'run-fail', 'worker-2');
+		expect(failedWrongWorker).toBeNull();
+		const failed = markRunFailed(db, 'run-fail', 'worker-1', {
 			errorCode: 'provider_error',
 			errorDetail: { detail: 'network timeout' },
 			errorMessage: 'provider failed',
@@ -164,7 +185,9 @@ describe('claim and lease primitives (B3)', () => {
 			},
 		);
 		claimNextRun(db, 'worker-1', 30_000);
-		const canceled = markRunCanceled(db, 'run-cancel');
+		const canceledWrongWorker = markRunCanceled(db, 'run-cancel', 'worker-2');
+		expect(canceledWrongWorker).toBeNull();
+		const canceled = markRunCanceled(db, 'run-cancel', 'worker-1');
 		expect(canceled?.status).toBe('canceled');
 		expect(canceled?.finished_at).toBeTruthy();
 

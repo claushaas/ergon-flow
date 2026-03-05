@@ -322,21 +322,6 @@ export function claimNextRun(
 		() => {
 			const now = new Date().toISOString();
 			const leaseUntil = addMilliseconds(now, leaseDurationMs);
-
-			const candidate = db
-				.prepare(
-					`SELECT id
-					 FROM workflow_runs
-					 WHERE status = 'queued'
-					   AND (lease_until IS NULL OR lease_until < ?)
-					 ORDER BY priority DESC, scheduled_at ASC
-					 LIMIT 1;`,
-				)
-				.get(now) as { id?: string } | undefined;
-			if (!candidate?.id) {
-				return null;
-			}
-
 			const claimed = db
 				.prepare(
 					`UPDATE workflow_runs
@@ -345,12 +330,17 @@ export function claimNextRun(
 					     lease_until = ?,
 					     started_at = COALESCE(started_at, ?),
 					     updated_at = ?
-					 WHERE id = ?
-					   AND status = 'queued'
-					   AND (lease_until IS NULL OR lease_until < ?)
+					 WHERE id = (
+					   SELECT id
+					   FROM workflow_runs
+					   WHERE status = 'queued'
+					     AND (lease_until IS NULL OR lease_until < ?)
+					   ORDER BY priority DESC, scheduled_at ASC
+					   LIMIT 1
+					 )
 					 RETURNING *;`,
 				)
-				.get(workerId, leaseUntil, now, now, candidate.id, now);
+				.get(workerId, leaseUntil, now, now, now);
 
 			return (claimed as unknown as WorkflowRunRow | undefined) ?? null;
 		},
@@ -385,6 +375,7 @@ export function renewLease(
 export function markRunSucceeded(
 	db: DatabaseSync,
 	runId: string,
+	workerId: string,
 	options: RunResultOptions = {},
 ): WorkflowRunRow | null {
 	const now = options.finishedAt ?? new Date().toISOString();
@@ -401,9 +392,11 @@ export function markRunSucceeded(
 			     finished_at = ?,
 			     updated_at = ?
 			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(optionalJson(options.result), now, now, runId);
+		.get(optionalJson(options.result), now, now, runId, workerId);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
@@ -411,6 +404,7 @@ export function markRunSucceeded(
 export function markRunFailed(
 	db: DatabaseSync,
 	runId: string,
+	workerId: string,
 	options: RunFailureOptions = {},
 ): WorkflowRunRow | null {
 	const now = options.finishedAt ?? new Date().toISOString();
@@ -426,6 +420,8 @@ export function markRunFailed(
 			     finished_at = ?,
 			     updated_at = ?
 			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND status = 'running'
 			 RETURNING *;`,
 		)
 		.get(
@@ -435,6 +431,7 @@ export function markRunFailed(
 			now,
 			now,
 			runId,
+			workerId,
 		);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
@@ -443,6 +440,7 @@ export function markRunFailed(
 export function markRunWaitingManual(
 	db: DatabaseSync,
 	runId: string,
+	workerId: string,
 ): WorkflowRunRow | null {
 	const now = new Date().toISOString();
 	const row = db
@@ -453,9 +451,11 @@ export function markRunWaitingManual(
 			     lease_until = NULL,
 			     updated_at = ?
 			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(now, runId);
+		.get(now, runId, workerId);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
@@ -463,6 +463,7 @@ export function markRunWaitingManual(
 export function markRunCanceled(
 	db: DatabaseSync,
 	runId: string,
+	workerId: string,
 	options: RunResultOptions = {},
 ): WorkflowRunRow | null {
 	const now = options.finishedAt ?? new Date().toISOString();
@@ -475,9 +476,11 @@ export function markRunCanceled(
 			     finished_at = ?,
 			     updated_at = ?
 			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(now, now, runId);
+		.get(now, now, runId, workerId);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
