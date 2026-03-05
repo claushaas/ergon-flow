@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { NotifyStepDefinition } from '@ergon/shared';
 import {
 	interpolateTemplateString,
@@ -26,6 +27,32 @@ export type NotifyWebhookSender = (
 export interface NotifyExecutorOptions {
 	log?: NotifyLogger;
 	sendWebhook?: NotifyWebhookSender;
+}
+
+function sanitizeLoggedMessage(message: string): string {
+	return JSON.stringify(message.replaceAll('\u0000', ''));
+}
+
+function validateWebhookTarget(target: string): URL {
+	let parsedUrl: URL;
+	try {
+		parsedUrl = new URL(target);
+	} catch {
+		throw new Error('Notify webhook target must be a valid https URL');
+	}
+	if (parsedUrl.protocol !== 'https:') {
+		throw new Error('Notify webhook target must use https');
+	}
+	if (!parsedUrl.hostname || parsedUrl.hostname === 'localhost') {
+		throw new Error('Notify webhook target must use a non-local hostname');
+	}
+	if (isIP(parsedUrl.hostname) !== 0) {
+		throw new Error('Notify webhook target must not use an IP address');
+	}
+	if (parsedUrl.username || parsedUrl.password) {
+		throw new Error('Notify webhook target must not include credentials');
+	}
+	return parsedUrl;
 }
 
 export async function defaultSendWebhook(
@@ -77,48 +104,49 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 			throw new Error(`Notify step "${step.id}" did not render a message`);
 		}
 
-		if (step.channel === 'stdout') {
-			this.log(payload.message);
-			return {
-				outputs: {
+		switch (step.channel) {
+			case 'stdout':
+				this.log(sanitizeLoggedMessage(payload.message));
+				return {
+					outputs: {
+						channel: step.channel,
+						message: payload.message,
+					},
+					status: 'succeeded',
+				};
+			case 'webhook': {
+				if (!step.target) {
+					throw new Error(`Notify step "${step.id}" requires a target`);
+				}
+
+				const target = interpolateTemplateString(step.target, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				});
+				const validatedTarget = validateWebhookTarget(target);
+				const result = await this.sendWebhook({
 					channel: step.channel,
 					message: payload.message,
-				},
-				status: 'succeeded',
-			};
-		}
+					runId: context.run.runId,
+					stepId: step.id,
+					target: validatedTarget.toString(),
+					workflowId: context.run.workflowId,
+				});
 
-		if (step.channel === 'webhook') {
-			if (!step.target) {
-				throw new Error(`Notify step "${step.id}" requires a target`);
+				return {
+					outputs: {
+						channel: step.channel,
+						message: payload.message,
+						status: result.status,
+						target: validatedTarget.toString(),
+					},
+					status: 'succeeded',
+				};
 			}
-
-			const target = interpolateTemplateString(step.target, {
-				artifacts: context.artifacts,
-				inputs: context.inputs,
-			});
-			const result = await this.sendWebhook({
-				channel: step.channel,
-				message: payload.message,
-				runId: context.run.runId,
-				stepId: step.id,
-				target,
-				workflowId: context.run.workflowId,
-			});
-
-			return {
-				outputs: {
-					channel: step.channel,
-					message: payload.message,
-					status: result.status,
-					target,
-				},
-				status: 'succeeded',
-			};
+			default:
+				throw new Error(
+					`Notify step "${step.id}" uses unsupported channel "${step.channel}"`,
+				);
 		}
-
-		throw new Error(
-			`Notify step "${step.id}" uses unsupported channel "${step.channel}"`,
-		);
 	}
 }

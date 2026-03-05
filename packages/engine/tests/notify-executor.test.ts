@@ -44,7 +44,7 @@ describe('NotifyExecutor (E6)', () => {
 
 		const result = await executor.execute(step, createTestContext());
 
-		expect(logMock).toHaveBeenCalledWith('ergon-flow status=passed');
+		expect(logMock).toHaveBeenCalledWith('"ergon-flow status=passed"');
 		expect(result).toEqual({
 			outputs: {
 				channel: 'stdout',
@@ -91,6 +91,22 @@ describe('NotifyExecutor (E6)', () => {
 		});
 	});
 
+	it('sanitizes stdout messages before logging', async () => {
+		const executor = new NotifyExecutor({
+			log: logMock,
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'stdout',
+			id: 'notify.stdout',
+			kind: 'notify',
+			message: 'line 1\nline 2',
+		};
+
+		await executor.execute(step, createTestContext());
+
+		expect(logMock).toHaveBeenCalledWith('"line 1\\nline 2"');
+	});
+
 	it('rejects webhook notifications without a target', async () => {
 		const executor = new NotifyExecutor({
 			log: logMock,
@@ -104,6 +120,23 @@ describe('NotifyExecutor (E6)', () => {
 
 		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
 			'Notify step "notify.webhook" requires a target',
+		);
+	});
+
+	it('rejects webhook notifications that use a local or non-https target', async () => {
+		const executor = new NotifyExecutor({
+			log: logMock,
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'webhook',
+			id: 'notify.webhook',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+			target: 'http://127.0.0.1/internal',
+		};
+
+		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
+			'Notify webhook target must use https',
 		);
 	});
 
@@ -121,6 +154,22 @@ describe('NotifyExecutor (E6)', () => {
 
 		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
 			'Notify step "notify.slack" uses unsupported channel "slack"',
+		);
+	});
+
+	it('rejects notifications with an empty message', async () => {
+		const executor = new NotifyExecutor({
+			log: logMock,
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'stdout',
+			id: 'notify.empty-message',
+			kind: 'notify',
+			message: '',
+		};
+
+		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
+			'Notify step "notify.empty-message" did not render a message',
 		);
 	});
 });
