@@ -103,11 +103,15 @@ function normalizeMessageContent(content: unknown): string {
 	if (Array.isArray(content)) {
 		return content
 			.map((part) => {
-				if (!part || typeof part !== 'object') {
+				if (
+					!part ||
+					typeof part !== 'object' ||
+					!('text' in part) ||
+					typeof part.text !== 'string'
+				) {
 					return '';
 				}
-				const text = (part as { text?: unknown }).text;
-				return typeof text === 'string' ? text : '';
+				return part.text;
 			})
 			.filter((value) => value.length > 0)
 			.join('\n');

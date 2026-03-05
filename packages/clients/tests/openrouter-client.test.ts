@@ -143,4 +143,57 @@ describe('OpenRouterModelClient (D2)', () => {
 			}),
 		).rejects.toThrow('OpenRouter request failed (429): rate limited');
 	});
+
+	it('fails when the API response does not include choices', async () => {
+		const client = new OpenRouterModelClient({
+			apiKey: 'test-key',
+			defaultModel: 'deepseek/deepseek-v3.2',
+			fetch: vi
+				.fn<typeof fetch>()
+				.mockResolvedValue(createJsonResponse({ id: 'resp_1' })),
+		});
+
+		await expect(
+			client.run({
+				provider: 'openrouter',
+				prompt: 'Review this patch',
+			}),
+		).rejects.toThrow('OpenRouter response did not include any choices');
+	});
+
+	it('fails when the API response choice does not include a message', async () => {
+		const client = new OpenRouterModelClient({
+			apiKey: 'test-key',
+			defaultModel: 'deepseek/deepseek-v3.2',
+			fetch: vi
+				.fn<typeof fetch>()
+				.mockResolvedValue(createJsonResponse({ choices: [{}] })),
+		});
+
+		await expect(
+			client.run({
+				provider: 'openrouter',
+				prompt: 'Review this patch',
+			}),
+		).rejects.toThrow('OpenRouter response did not include a message');
+	});
+
+	it('fails when the API response message content is empty', async () => {
+		const client = new OpenRouterModelClient({
+			apiKey: 'test-key',
+			defaultModel: 'deepseek/deepseek-v3.2',
+			fetch: vi.fn<typeof fetch>().mockResolvedValue(
+				createJsonResponse({
+					choices: [{ message: { content: [{ type: 'text' }] } }],
+				}),
+			),
+		});
+
+		await expect(
+			client.run({
+				provider: 'openrouter',
+				prompt: 'Review this patch',
+			}),
+		).rejects.toThrow('OpenRouter response message content is empty');
+	});
 });
