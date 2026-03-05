@@ -1,3 +1,4 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type { NotifyStepDefinition } from '@ergon/shared';
 import {
@@ -19,6 +20,7 @@ export interface NotifyWebhookResult {
 	status?: number;
 }
 
+export type HostnameResolver = typeof dnsLookup;
 export type NotifyLogger = (message: string) => void;
 export type NotifyWebhookSender = (
 	payload: NotifyWebhookPayload,
@@ -26,6 +28,7 @@ export type NotifyWebhookSender = (
 
 export interface NotifyExecutorOptions {
 	log?: NotifyLogger;
+	resolveHostname?: HostnameResolver;
 	sendWebhook?: NotifyWebhookSender;
 }
 
@@ -33,7 +36,41 @@ function sanitizeLoggedMessage(message: string): string {
 	return JSON.stringify(message.replaceAll('\u0000', ''));
 }
 
-function validateWebhookTarget(target: string): URL {
+function isBlockedIpAddress(address: string): boolean {
+	if (address === '::1') {
+		return true;
+	}
+	if (
+		address.startsWith('fe80:') ||
+		address.startsWith('fc') ||
+		address.startsWith('fd')
+	) {
+		return true;
+	}
+	const parts = address.split('.').map((part) => Number.parseInt(part, 10));
+	if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+		return false;
+	}
+	const [first, second] = parts;
+	if (first === 10 || first === 127 || first === 0) {
+		return true;
+	}
+	if (first === 169 && second === 254) {
+		return true;
+	}
+	if (first === 172 && second !== undefined && second >= 16 && second <= 31) {
+		return true;
+	}
+	if (first === 192 && second === 168) {
+		return true;
+	}
+	return false;
+}
+
+async function validateWebhookTarget(
+	target: string,
+	resolveHostname: HostnameResolver,
+): Promise<URL> {
 	let parsedUrl: URL;
 	try {
 		parsedUrl = new URL(target);
@@ -43,14 +80,31 @@ function validateWebhookTarget(target: string): URL {
 	if (parsedUrl.protocol !== 'https:') {
 		throw new Error('Notify webhook target must use https');
 	}
-	if (!parsedUrl.hostname || parsedUrl.hostname === 'localhost') {
+	const normalizedHostname = parsedUrl.hostname
+		.replace(/\.$/, '')
+		.toLowerCase();
+	if (
+		!normalizedHostname ||
+		normalizedHostname === 'localhost' ||
+		normalizedHostname.endsWith('.localhost')
+	) {
 		throw new Error('Notify webhook target must use a non-local hostname');
 	}
-	if (isIP(parsedUrl.hostname) !== 0) {
+	if (isIP(normalizedHostname) !== 0) {
 		throw new Error('Notify webhook target must not use an IP address');
 	}
 	if (parsedUrl.username || parsedUrl.password) {
 		throw new Error('Notify webhook target must not include credentials');
+	}
+	const resolvedAddresses = await resolveHostname(normalizedHostname, {
+		all: true,
+		family: 0,
+	});
+	if (resolvedAddresses.length === 0) {
+		throw new Error('Notify webhook target must resolve to a public address');
+	}
+	if (resolvedAddresses.some((entry) => isBlockedIpAddress(entry.address))) {
+		throw new Error('Notify webhook target must resolve to a public address');
 	}
 	return parsedUrl;
 }
@@ -70,6 +124,7 @@ export async function defaultSendWebhook(
 			'content-type': 'application/json',
 		},
 		method: 'POST',
+		redirect: 'error',
 	});
 	if (!response.ok) {
 		throw new Error(
@@ -85,10 +140,12 @@ export async function defaultSendWebhook(
 export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 	public readonly kind = 'notify' as const;
 	private readonly log: NotifyLogger;
+	private readonly resolveHostname: HostnameResolver;
 	private readonly sendWebhook: NotifyWebhookSender;
 
 	public constructor(options: NotifyExecutorOptions = {}) {
 		this.log = options.log ?? console.log;
+		this.resolveHostname = options.resolveHostname ?? dnsLookup;
 		this.sendWebhook = options.sendWebhook ?? defaultSendWebhook;
 	}
 
@@ -123,7 +180,10 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					artifacts: context.artifacts,
 					inputs: context.inputs,
 				});
-				const validatedTarget = validateWebhookTarget(target);
+				const validatedTarget = await validateWebhookTarget(
+					target,
+					this.resolveHostname,
+				);
 				const result = await this.sendWebhook({
 					channel: step.channel,
 					message: payload.message,

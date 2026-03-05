@@ -5,9 +5,13 @@ import { NotifyExecutor } from '../src/executors/notify.js';
 
 describe('NotifyExecutor (E6)', () => {
 	let logMock: ReturnType<typeof vi.fn>;
+	let resolveHostnameMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
 		logMock = vi.fn();
+		resolveHostnameMock = vi
+			.fn()
+			.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
 	});
 
 	function createTestContext() {
@@ -60,6 +64,7 @@ describe('NotifyExecutor (E6)', () => {
 		});
 		const executor = new NotifyExecutor({
 			log: logMock,
+			resolveHostname: resolveHostnameMock,
 			sendWebhook: sendWebhookMock,
 		});
 		const step: NotifyStepDefinition = {
@@ -89,11 +94,16 @@ describe('NotifyExecutor (E6)', () => {
 			},
 			status: 'succeeded',
 		});
+		expect(resolveHostnameMock).toHaveBeenCalledWith('example.test', {
+			all: true,
+			family: 0,
+		});
 	});
 
 	it('sanitizes stdout messages before logging', async () => {
 		const executor = new NotifyExecutor({
 			log: logMock,
+			resolveHostname: resolveHostnameMock,
 		});
 		const step: NotifyStepDefinition = {
 			channel: 'stdout',
@@ -110,6 +120,7 @@ describe('NotifyExecutor (E6)', () => {
 	it('rejects webhook notifications without a target', async () => {
 		const executor = new NotifyExecutor({
 			log: logMock,
+			resolveHostname: resolveHostnameMock,
 		});
 		const step: NotifyStepDefinition = {
 			channel: 'webhook',
@@ -137,6 +148,27 @@ describe('NotifyExecutor (E6)', () => {
 
 		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
 			'Notify webhook target must use https',
+		);
+	});
+
+	it('rejects webhook notifications that resolve to a local address', async () => {
+		resolveHostnameMock.mockResolvedValue([
+			{ address: '127.0.0.1', family: 4 },
+		]);
+		const executor = new NotifyExecutor({
+			log: logMock,
+			resolveHostname: resolveHostnameMock,
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'webhook',
+			id: 'notify.webhook',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+			target: 'https://example.test/hooks/notify',
+		};
+
+		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
+			'Notify webhook target must resolve to a public address',
 		);
 	});
 

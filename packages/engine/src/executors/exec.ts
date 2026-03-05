@@ -25,6 +25,15 @@ export interface ExecExecutorOptions {
 	spawn?: ExecSpawn;
 }
 
+const DEFAULT_EXEC_ENV_KEYS = [
+	'HOME',
+	'LANG',
+	'PATH',
+	'SHELL',
+	'SYSTEMROOT',
+	'TMPDIR',
+] as const;
+
 function createOutputLimitError(stream: 'stderr' | 'stdout'): Error {
 	return new Error(
 		`Exec command ${stream} exceeded ${DEFAULT_EXEC_MAX_OUTPUT_BYTES} bytes`,
@@ -39,6 +48,19 @@ function normalizeChunk(chunk: string | Buffer): Buffer {
 	return Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 }
 
+function buildSpawnEnv(
+	env: Record<string, string> | undefined,
+): Record<string, string> {
+	const inheritedEntries = DEFAULT_EXEC_ENV_KEYS.flatMap((key) => {
+		const value = process.env[key];
+		return typeof value === 'string' ? [[key, value] as const] : [];
+	});
+	return {
+		...Object.fromEntries(inheritedEntries),
+		...(env ?? {}),
+	};
+}
+
 export async function defaultSpawn(
 	options: {
 		command: string;
@@ -50,7 +72,7 @@ export async function defaultSpawn(
 	return await new Promise<ExecSpawnResult>((resolve, reject) => {
 		const child = spawnImpl('bash', ['-c', options.command], {
 			cwd: options.cwd,
-			env: options.env ? { ...options.env } : {},
+			env: buildSpawnEnv(options.env),
 			stdio: 'pipe',
 		});
 		const stdoutChunks: Buffer[] = [];

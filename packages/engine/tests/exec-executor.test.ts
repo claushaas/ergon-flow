@@ -157,13 +157,22 @@ describe('ExecExecutor (E3)', () => {
 			stderr: 'warn\n',
 			stdout: 'ok\n',
 		});
+		const spawnCall = spawnMock.mock.calls[0];
+		const spawnOptions = spawnCall?.[2];
 		expect(spawnMock).toHaveBeenCalledWith('bash', ['-c', 'echo ok'], {
 			cwd: '/workspace/repo',
-			env: {
+			env: expect.objectContaining({
 				REPORT_NAME: 'parser',
-			},
+			}),
 			stdio: 'pipe',
 		});
+		expect(spawnOptions).toBeDefined();
+		expect(spawnOptions?.env).toEqual(
+			expect.objectContaining({
+				REPORT_NAME: 'parser',
+			}),
+		);
+		expect(spawnOptions?.env.PATH).toBe(process.env.PATH);
 	});
 
 	it('rejects when stdout exceeds the configured output limit', async () => {
