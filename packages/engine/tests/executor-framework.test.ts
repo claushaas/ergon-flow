@@ -1,7 +1,6 @@
 import type {
 	ExecStepDefinition,
 	ManualStepDefinition,
-	StepDefinition,
 } from '@ergon/shared';
 import { describe, expect, it } from 'vitest';
 import {
@@ -89,7 +88,7 @@ describe('executor framework (E1)', () => {
 			new StubExecExecutor(),
 			new StubManualExecutor(),
 		]);
-		const step: StepDefinition = {
+		const step: ExecStepDefinition = {
 			command: 'pnpm test',
 			id: 'step.exec',
 			kind: 'exec',
@@ -108,9 +107,7 @@ describe('executor framework (E1)', () => {
 		expect(registry.has('exec')).toBe(true);
 		expect(registry.has('notify')).toBe(false);
 
-		const result = await registry
-			.get(step.kind)
-			.execute(step as ExecStepDefinition, context);
+		const result = await registry.get(step.kind).execute(step, context);
 
 		expect(result).toEqual({
 			artifacts: [

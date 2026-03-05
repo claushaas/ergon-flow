@@ -12,21 +12,21 @@ export interface ExecutorArtifact {
 }
 
 export interface ExecutionRunMetadata {
-	attempt: number;
-	runId: string;
-	stepIndex: number;
-	workflowId: string;
-	workflowVersion: number;
-	workerId?: string;
+	readonly attempt: number;
+	readonly runId: string;
+	readonly stepIndex: number;
+	readonly workflowId: string;
+	readonly workflowVersion: number;
+	readonly workerId?: string;
 }
 
 export interface ExecutionContext {
-	artifacts: Record<string, unknown>;
+	readonly artifacts: Readonly<Record<string, unknown>>;
 	getArtifact: (name: string) => unknown;
 	getRequiredArtifact: (name: string) => unknown;
 	hasArtifact: (name: string) => boolean;
-	inputs: Record<string, unknown>;
-	run: ExecutionRunMetadata;
+	readonly inputs: Readonly<Record<string, unknown>>;
+	readonly run: ExecutionRunMetadata;
 }
 
 export interface CreateExecutionContextOptions {
@@ -74,15 +74,15 @@ export function createExecutionContext(
 }
 
 export class ExecutorRegistry {
-	private readonly executors = new Map<StepKind, Executor>();
+	private readonly executors = new Map<StepKind, Executor<any>>();
 
-	public constructor(executors: Executor[] = []) {
+	public constructor(executors: Executor<any>[] = []) {
 		for (const executor of executors) {
 			this.register(executor);
 		}
 	}
 
-	public get(kind: StepKind): Executor {
+	public get(kind: StepKind): Executor<any> {
 		const executor = this.executors.get(kind);
 		if (!executor) {
 			throw new Error(`No executor registered for step kind "${kind}"`);
@@ -94,7 +94,7 @@ export class ExecutorRegistry {
 		return this.executors.has(kind);
 	}
 
-	public register(executor: Executor): void {
+	public register(executor: Executor<any>): void {
 		if (this.executors.has(executor.kind)) {
 			throw new Error(`Executor already registered for step kind "${executor.kind}"`);
 		}
