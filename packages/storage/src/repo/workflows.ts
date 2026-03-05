@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { assertRow, nowIso } from './utils.js';
 
 export interface RegisterWorkflowInput {
 	description?: string;
@@ -22,44 +23,38 @@ export function registerWorkflow(
 	db: DatabaseSync,
 	input: RegisterWorkflowInput,
 ): WorkflowRow {
-	const now = new Date().toISOString();
-
-	db.prepare(
-		`INSERT INTO workflows (
-			id,
-			version,
-			description,
-			source_path,
-			hash,
-			created_at,
-			updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id, version) DO UPDATE SET
-			description = excluded.description,
-			source_path = excluded.source_path,
-			hash = excluded.hash,
-			updated_at = excluded.updated_at;`,
-	).run(
-		input.id,
-		input.version,
-		input.description ?? null,
-		input.sourcePath,
-		input.hash,
-		now,
-		now,
-	);
+	const now = nowIso();
 
 	const row = db
 		.prepare(
-			`SELECT id, version, description, source_path, hash, created_at, updated_at
-			 FROM workflows
-			 WHERE id = ? AND version = ?;`,
+			`INSERT INTO workflows (
+				id,
+				version,
+				description,
+				source_path,
+				hash,
+				created_at,
+				updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(id, version) DO UPDATE SET
+				description = excluded.description,
+				source_path = excluded.source_path,
+				hash = excluded.hash,
+				updated_at = excluded.updated_at
+			RETURNING *;`,
 		)
-		.get(input.id, input.version);
-	if (!row) {
-		throw new Error(
-			`Failed to load workflow ${input.id}@${input.version} after upsert`,
+		.get(
+			input.id,
+			input.version,
+			input.description ?? null,
+			input.sourcePath,
+			input.hash,
+			now,
+			now,
 		);
-	}
-	return row as unknown as WorkflowRow;
+
+	return assertRow<WorkflowRow>(
+		row,
+		`Failed to load workflow ${input.id}@${input.version} after upsert`,
+	);
 }

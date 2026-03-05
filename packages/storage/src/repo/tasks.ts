@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import { assertRow, optionalJson, toJson } from './utils.js';
 
 export type WorkflowRunStatus =
 	| 'canceled'
@@ -102,21 +103,6 @@ export interface UpdateStepRunStatusOptions {
 	startedAt?: string | null;
 }
 
-function nowIso(): string {
-	return new Date().toISOString();
-}
-
-function toJson(value: unknown): string {
-	return JSON.stringify(value ?? null);
-}
-
-function optionalJson(value: unknown): string | null {
-	if (value === undefined) {
-		return null;
-	}
-	return toJson(value);
-}
-
 export function createRun(
 	db: DatabaseSync,
 	workflowId: string,
@@ -126,42 +112,44 @@ export function createRun(
 		workflowVersion: number;
 	},
 ): WorkflowRunRow {
-	const now = nowIso();
 	const runId = options.id ?? randomUUID();
-	const scheduledAt = options.scheduledAt ?? now;
+	const scheduledAt = options.scheduledAt ?? new Date().toISOString();
+	const now = new Date().toISOString();
 
-	db.prepare(
-		`INSERT INTO workflow_runs (
-			id,
-			workflow_id,
-			workflow_version,
-			workflow_hash,
-			status,
-			priority,
-			scheduled_at,
-			inputs_json,
-			context_json,
-			created_at,
-			updated_at
-		) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?);`,
-	).run(
-		runId,
-		workflowId,
-		options.workflowVersion,
-		options.workflowHash,
-		options.priority ?? 0,
-		scheduledAt,
-		toJson(inputs),
-		optionalJson(options.context),
-		now,
-		now,
+	const row = db
+		.prepare(
+			`INSERT INTO workflow_runs (
+				id,
+				workflow_id,
+				workflow_version,
+				workflow_hash,
+				status,
+				priority,
+				scheduled_at,
+				inputs_json,
+				context_json,
+				created_at,
+				updated_at
+			) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+			RETURNING *;`,
+		)
+		.get(
+			runId,
+			workflowId,
+			options.workflowVersion,
+			options.workflowHash,
+			options.priority ?? 0,
+			scheduledAt,
+			toJson(inputs),
+			optionalJson(options.context),
+			now,
+			now,
+		);
+
+	return assertRow<WorkflowRunRow>(
+		row,
+		`Failed to load workflow_run ${runId} after insert`,
 	);
-
-	const row = getRun(db, runId);
-	if (!row) {
-		throw new Error(`Failed to load workflow_run ${runId} after insert`);
-	}
-	return row;
 }
 
 export function getRun(db: DatabaseSync, runId: string): WorkflowRunRow | null {
@@ -209,42 +197,42 @@ export function createStepRun(
 	kind: StepKind,
 	options: CreateStepRunOptions = {},
 ): StepRunRow {
-	const now = nowIso();
 	const stepRunId = options.id ?? randomUUID();
-
-	db.prepare(
-		`INSERT INTO step_runs (
-			id,
-			run_id,
-			step_id,
-			step_kind,
-			status,
-			attempt,
-			depends_on_json,
-			request_json,
-			created_at,
-			updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-	).run(
-		stepRunId,
-		runId,
-		stepId,
-		kind,
-		options.status ?? 'queued',
-		attempt,
-		optionalJson(options.dependsOn),
-		optionalJson(options.request),
-		now,
-		now,
-	);
+	const now = new Date().toISOString();
 
 	const row = db
-		.prepare('SELECT * FROM step_runs WHERE id = ?;')
-		.get(stepRunId);
-	if (!row) {
-		throw new Error(`Failed to load step_run ${stepRunId} after insert`);
-	}
-	return row as unknown as StepRunRow;
+		.prepare(
+			`INSERT INTO step_runs (
+				id,
+				run_id,
+				step_id,
+				step_kind,
+				status,
+				attempt,
+				depends_on_json,
+				request_json,
+				created_at,
+				updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			RETURNING *;`,
+		)
+		.get(
+			stepRunId,
+			runId,
+			stepId,
+			kind,
+			options.status ?? 'queued',
+			attempt,
+			optionalJson(options.dependsOn),
+			optionalJson(options.request),
+			now,
+			now,
+		);
+
+	return assertRow<StepRunRow>(
+		row,
+		`Failed to load step_run ${stepRunId} after insert`,
+	);
 }
 
 export function updateStepRunStatus(
@@ -253,9 +241,8 @@ export function updateStepRunStatus(
 	status: StepRunStatus,
 	options: UpdateStepRunStatusOptions = {},
 ): StepRunRow | null {
-	const now = nowIso();
 	const updates: string[] = ['status = ?', 'updated_at = ?'];
-	const params: SQLInputValue[] = [status, now];
+	const params: SQLInputValue[] = [status, new Date().toISOString()];
 
 	if (Object.hasOwn(options, 'startedAt')) {
 		updates.push('started_at = ?');
@@ -291,12 +278,14 @@ export function updateStepRunStatus(
 	}
 
 	params.push(stepRunId);
-	db.prepare(`UPDATE step_runs SET ${updates.join(', ')} WHERE id = ?;`).run(
-		...params,
-	);
-
 	const row = db
-		.prepare('SELECT * FROM step_runs WHERE id = ?;')
-		.get(stepRunId);
+		.prepare(
+			`UPDATE step_runs
+			 SET ${updates.join(', ')}
+			 WHERE id = ?
+			 RETURNING *;`,
+		)
+		.get(...params);
+
 	return (row as unknown as StepRunRow | undefined) ?? null;
 }
