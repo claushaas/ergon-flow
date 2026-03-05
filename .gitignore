@@ -2,6 +2,8 @@
 node_modules/
 pnpm-lock.yaml
 
+.codex/
+
 # Build outputs
 dist/
 build/
