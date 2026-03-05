@@ -1,13 +1,134 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import type { ExecStepDefinition } from '@ergon/shared';
+import { interpolateTemplateString, renderStepRequestPayload } from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
+
+export interface ExecSpawnResult {
+	code: number | null;
+	signal: NodeJS.Signals | null;
+	stderr: string;
+	stdout: string;
+}
+
+export type ExecSpawn = (options: {
+	command: string;
+	cwd?: string;
+	env?: Record<string, string>;
+}) => Promise<ExecSpawnResult>;
+
+export interface ExecExecutorOptions {
+	spawn?: ExecSpawn;
+}
+
+async function defaultSpawn(options: {
+	command: string;
+	cwd?: string;
+	env?: Record<string, string>;
+}): Promise<ExecSpawnResult> {
+	return await new Promise<ExecSpawnResult>((resolve, reject) => {
+		const child = nodeSpawn('bash', ['-lc', options.command], {
+			cwd: options.cwd,
+			env: options.env ? { ...process.env, ...options.env } : process.env,
+			stdio: 'pipe',
+		});
+		let stdout = '';
+		let stderr = '';
+
+		child.stdout.on('data', (chunk) => {
+			stdout += chunk.toString();
+		});
+		child.stderr.on('data', (chunk) => {
+			stderr += chunk.toString();
+		});
+		child.on('error', reject);
+		child.on('close', (code, signal) => {
+			resolve({
+				code,
+				signal,
+				stderr,
+				stdout,
+			});
+		});
+	});
+}
 
 export class ExecExecutor implements Executor<ExecStepDefinition> {
 	public readonly kind = 'exec' as const;
+	private readonly spawn: ExecSpawn;
+
+	public constructor(options: ExecExecutorOptions = {}) {
+		this.spawn = options.spawn ?? defaultSpawn;
+	}
 
 	public async execute(
-		_step: ExecStepDefinition,
-		_context: ExecutionContext,
+		step: ExecStepDefinition,
+		context: ExecutionContext,
 	): Promise<ExecutorResult> {
-		throw new Error('ExecExecutor is not implemented yet');
+		const payload = renderStepRequestPayload(step, {
+			artifacts: context.artifacts,
+			inputs: context.inputs,
+		});
+		if (!payload.command) {
+			throw new Error(`Exec step "${step.id}" did not render a command`);
+		}
+
+		const cwd = step.cwd
+			? interpolateTemplateString(step.cwd, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				})
+			: undefined;
+		const env = step.env
+			? Object.fromEntries(
+					Object.entries(step.env).map(([key, value]) => [
+						key,
+						interpolateTemplateString(value, {
+							artifacts: context.artifacts,
+							inputs: context.inputs,
+						}),
+					]),
+				)
+			: undefined;
+		const result = await this.spawn({
+			command: payload.command,
+			cwd,
+			env,
+		});
+		const normalizedResult = {
+			code: result.code,
+			command: payload.command,
+			cwd,
+			env,
+			signal: result.signal,
+			stderr: result.stderr,
+			stdout: result.stdout,
+		};
+
+		return {
+			artifacts: [
+				{
+					name: step.id,
+					type: 'json',
+					value: normalizedResult,
+				},
+				{
+					name: `${step.id}.stdout`,
+					type: 'text',
+					value: result.stdout,
+				},
+				{
+					name: `${step.id}.stderr`,
+					type: 'text',
+					value: result.stderr,
+				},
+				{
+					name: `${step.id}.result`,
+					type: 'json',
+					value: normalizedResult,
+				},
+			],
+			outputs: normalizedResult,
+			status: result.code === 0 ? 'succeeded' : 'failed',
+		};
 	}
 }
