@@ -1,11 +1,11 @@
-import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import type { ExecStepDefinition } from '@ergon/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	DEFAULT_EXEC_MAX_OUTPUT_BYTES,
-	ExecExecutor,
 	defaultSpawn,
+	ExecExecutor,
 } from '../src/executors/exec.js';
 import { createExecutionContext } from '../src/executors/index.js';
 
@@ -136,13 +136,16 @@ describe('ExecExecutor (E3)', () => {
 		child.stderr = stderr as ChildProcess['stderr'];
 		const spawnMock = vi.fn().mockReturnValue(child);
 
-		const spawnPromise = defaultSpawn({
-			command: 'echo ok',
-			cwd: '/workspace/repo',
-			env: {
-				REPORT_NAME: 'parser',
+		const spawnPromise = defaultSpawn(
+			{
+				command: 'echo ok',
+				cwd: '/workspace/repo',
+				env: {
+					REPORT_NAME: 'parser',
+				},
 			},
-		}, spawnMock);
+			spawnMock,
+		);
 
 		stdout.emit('data', Buffer.from('ok\n'));
 		stderr.emit('data', Buffer.from('warn\n'));
@@ -173,9 +176,12 @@ describe('ExecExecutor (E3)', () => {
 		child.stderr = stderr as ChildProcess['stderr'];
 		const spawnMock = vi.fn().mockReturnValue(child);
 
-		const spawnPromise = defaultSpawn({
-			command: 'python huge.py',
-		}, spawnMock);
+		const spawnPromise = defaultSpawn(
+			{
+				command: 'python huge.py',
+			},
+			spawnMock,
+		);
 
 		stdout.emit('data', Buffer.alloc(1024 * 1024 + 1, 'a'));
 

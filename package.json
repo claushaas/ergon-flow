@@ -9,6 +9,7 @@
 	"packageManager": "pnpm@10.30.3",
 	"private": true,
 	"scripts": {
+		"biome": "biome check --unsafe --write",
 		"build": "tsc --build",
 		"dev": "pnpm --filter @ergon/cli dev",
 		"test": "vitest run"

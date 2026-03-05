@@ -1,6 +1,9 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { ExecStepDefinition } from '@ergon/shared';
-import { interpolateTemplateString, renderStepRequestPayload } from '../templating/index.js';
+import {
+	interpolateTemplateString,
+	renderStepRequestPayload,
+} from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 
 export const DEFAULT_EXEC_MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -36,11 +39,12 @@ function normalizeChunk(chunk: string | Buffer): Buffer {
 	return Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
 }
 
-export async function defaultSpawn(options: {
-	command: string;
-	cwd?: string;
-	env?: Record<string, string>;
-},
+export async function defaultSpawn(
+	options: {
+		command: string;
+		cwd?: string;
+		env?: Record<string, string>;
+	},
 	spawnImpl: typeof nodeSpawn = nodeSpawn,
 ): Promise<ExecSpawnResult> {
 	return await new Promise<ExecSpawnResult>((resolve, reject) => {

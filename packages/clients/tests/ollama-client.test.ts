@@ -30,8 +30,8 @@ describe('OllamaModelClient (D3)', () => {
 		});
 
 		const result = await client.run({
-			provider: 'ollama',
 			prompt: 'Generate a patch',
+			provider: 'ollama',
 		});
 
 		expect(result.text).toBe('Generated patch');
@@ -86,8 +86,8 @@ describe('OllamaModelClient (D3)', () => {
 
 		await expect(
 			client.run({
-				provider: 'ollama',
 				prompt: 'Generate a patch',
+				provider: 'ollama',
 			}),
 		).rejects.toThrow('Ollama request must include a model');
 	});
@@ -102,8 +102,8 @@ describe('OllamaModelClient (D3)', () => {
 
 		await expect(
 			client.run({
-				provider: 'ollama',
 				prompt: 'Generate a patch',
+				provider: 'ollama',
 			}),
 		).rejects.toThrow('Ollama request failed (503): busy');
 	});
@@ -118,8 +118,8 @@ describe('OllamaModelClient (D3)', () => {
 
 		await expect(
 			client.run({
-				provider: 'ollama',
 				prompt: 'Generate a patch',
+				provider: 'ollama',
 			}),
 		).rejects.toThrow('Ollama response message content is empty');
 	});

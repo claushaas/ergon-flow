@@ -5,10 +5,7 @@ import type {
 	Provider,
 } from '@ergon/shared';
 import { describe, expect, it } from 'vitest';
-import {
-	ClientRegistry,
-	validateProviderConfig,
-} from '../src/index.js';
+import { ClientRegistry, validateProviderConfig } from '../src/index.js';
 
 class StubClient implements ExecutionClient {
 	public readonly provider: Provider;

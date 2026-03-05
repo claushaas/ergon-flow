@@ -1,84 +1,71 @@
 {
-  "$id": "agent.plan.v1",
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "additionalProperties": false,
-  "description": "Structured implementation plan produced after analysis and before code modification steps.",
-  "properties": {
-    "affected_files": {
-      "description": "List of all files expected to be affected by the change.",
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
-    },
-    "approach": {
-      "description": "Detailed explanation of the technical approach that will be used to implement the solution.",
-      "type": "string"
-    },
-    "notes": {
-      "description": "Additional notes that may help later steps such as coding or review.",
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
-    },
-    "risks": {
-      "description": "Potential risks associated with the planned implementation.",
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
-    },
-    "steps": {
-      "description": "Ordered list of implementation steps that will be executed.",
-      "items": {
-        "additionalProperties": false,
-        "properties": {
-          "description": {
-            "description": "Description of the step to be executed.",
-            "type": "string"
-          },
-          "files": {
-            "description": "Files expected to be modified or created in this step.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "type": {
-            "description": "Type of step being performed.",
-            "enum": [
-              "modify",
-              "create",
-              "delete",
-              "refactor",
-              "test",
-              "docs"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "description"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "summary": {
-      "description": "Short summary of the implementation strategy.",
-      "type": "string"
-    },
-    "tests_strategy": {
-      "description": "Explanation of how the changes should be tested or validated.",
-      "type": "string"
-    }
-  },
-  "required": [
-    "summary",
-    "approach",
-    "steps"
-  ],
-  "title": "Agent Plan Artifact",
-  "type": "object"
+	"$id": "agent.plan.v1",
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"additionalProperties": false,
+	"description": "Structured implementation plan produced after analysis and before code modification steps.",
+	"properties": {
+		"affected_files": {
+			"description": "List of all files expected to be affected by the change.",
+			"items": {
+				"type": "string"
+			},
+			"type": "array"
+		},
+		"approach": {
+			"description": "Detailed explanation of the technical approach that will be used to implement the solution.",
+			"type": "string"
+		},
+		"notes": {
+			"description": "Additional notes that may help later steps such as coding or review.",
+			"items": {
+				"type": "string"
+			},
+			"type": "array"
+		},
+		"risks": {
+			"description": "Potential risks associated with the planned implementation.",
+			"items": {
+				"type": "string"
+			},
+			"type": "array"
+		},
+		"steps": {
+			"description": "Ordered list of implementation steps that will be executed.",
+			"items": {
+				"additionalProperties": false,
+				"properties": {
+					"description": {
+						"description": "Description of the step to be executed.",
+						"type": "string"
+					},
+					"files": {
+						"description": "Files expected to be modified or created in this step.",
+						"items": {
+							"type": "string"
+						},
+						"type": "array"
+					},
+					"type": {
+						"description": "Type of step being performed.",
+						"enum": ["modify", "create", "delete", "refactor", "test", "docs"],
+						"type": "string"
+					}
+				},
+				"required": ["description"],
+				"type": "object"
+			},
+			"type": "array"
+		},
+		"summary": {
+			"description": "Short summary of the implementation strategy.",
+			"type": "string"
+		},
+		"tests_strategy": {
+			"description": "Explanation of how the changes should be tested or validated.",
+			"type": "string"
+		}
+	},
+	"required": ["summary", "approach", "steps"],
+	"title": "Agent Plan Artifact",
+	"type": "object"
 }

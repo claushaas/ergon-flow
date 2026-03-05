@@ -1,3 +1,3 @@
 #!/usr/bin/env node
 
-console.log("STOA CLI placeholder");
+console.log('STOA CLI placeholder');

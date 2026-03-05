@@ -200,8 +200,8 @@ describe('template validation (C2)', () => {
 					id: 'review',
 					kind: 'agent',
 					output: { name: 'review', type: 'json' },
-					provider: 'openrouter',
 					prompt: 'Review changes',
+					provider: 'openrouter',
 				},
 			],
 			workflow: { id: 'workflow.output', version: 1 },
@@ -212,8 +212,8 @@ describe('template validation (C2)', () => {
 					id: 'review',
 					kind: 'agent',
 					output: { name: '', type: 'binary' },
-					provider: 'openrouter',
 					prompt: 'Review changes',
+					provider: 'openrouter',
 				},
 			],
 			workflow: { id: 'workflow.output.invalid', version: 1 },
@@ -223,14 +223,10 @@ describe('template validation (C2)', () => {
 		const invalidResult = validateTemplate(invalidTemplate);
 		expect(invalidResult.valid).toBe(false);
 		expect(
-			invalidResult.errors.some((error) =>
-				error.path.endsWith('.output.name'),
-			),
+			invalidResult.errors.some((error) => error.path.endsWith('.output.name')),
 		).toBe(true);
 		expect(
-			invalidResult.errors.some((error) =>
-				error.path.endsWith('.output.type'),
-			),
+			invalidResult.errors.some((error) => error.path.endsWith('.output.type')),
 		).toBe(true);
 	});
 
