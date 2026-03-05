@@ -2,7 +2,11 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import type { ExecStepDefinition } from '@ergon/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { ExecExecutor, defaultSpawn } from '../src/executors/exec.js';
+import {
+	DEFAULT_EXEC_MAX_OUTPUT_BYTES,
+	ExecExecutor,
+	defaultSpawn,
+} from '../src/executors/exec.js';
 import { createExecutionContext } from '../src/executors/index.js';
 
 describe('ExecExecutor (E3)', () => {
@@ -70,7 +74,7 @@ describe('ExecExecutor (E3)', () => {
 						code: 0,
 						command: "echo 'done'",
 						cwd: '/workspace/repo',
-						env: { REPORT_NAME: 'parser' },
+						envKeys: ['REPORT_NAME'],
 						signal: null,
 						stderr: 'warn\n',
 						stdout: 'ok\n',
@@ -81,7 +85,7 @@ describe('ExecExecutor (E3)', () => {
 				code: 0,
 				command: "echo 'done'",
 				cwd: '/workspace/repo',
-				env: { REPORT_NAME: 'parser' },
+				envKeys: ['REPORT_NAME'],
 				signal: null,
 				stderr: 'warn\n',
 				stdout: 'ok\n',
@@ -176,7 +180,7 @@ describe('ExecExecutor (E3)', () => {
 		stdout.emit('data', Buffer.alloc(1024 * 1024 + 1, 'a'));
 
 		await expect(spawnPromise).rejects.toThrow(
-			'Exec command stdout exceeded 1048576 bytes',
+			`Exec command stdout exceeded ${DEFAULT_EXEC_MAX_OUTPUT_BYTES} bytes`,
 		);
 		expect(kill).toHaveBeenCalledWith('SIGTERM');
 	});

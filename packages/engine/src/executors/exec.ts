@@ -22,6 +22,12 @@ export interface ExecExecutorOptions {
 	spawn?: ExecSpawn;
 }
 
+function createOutputLimitError(stream: 'stderr' | 'stdout'): Error {
+	return new Error(
+		`Exec command ${stream} exceeded ${DEFAULT_EXEC_MAX_OUTPUT_BYTES} bytes`,
+	);
+}
+
 function decodeOutput(chunks: Buffer[]): string {
 	return Buffer.concat(chunks).toString('utf8');
 }
@@ -62,7 +68,7 @@ export async function defaultSpawn(options: {
 			const normalized = normalizeChunk(chunk);
 			stdoutBytes += normalized.byteLength;
 			if (stdoutBytes > DEFAULT_EXEC_MAX_OUTPUT_BYTES) {
-				fail(new Error('Exec command stdout exceeded 1048576 bytes'));
+				fail(createOutputLimitError('stdout'));
 				return;
 			}
 			stdoutChunks.push(normalized);
@@ -71,18 +77,12 @@ export async function defaultSpawn(options: {
 			const normalized = normalizeChunk(chunk);
 			stderrBytes += normalized.byteLength;
 			if (stderrBytes > DEFAULT_EXEC_MAX_OUTPUT_BYTES) {
-				fail(new Error('Exec command stderr exceeded 1048576 bytes'));
+				fail(createOutputLimitError('stderr'));
 				return;
 			}
 			stderrChunks.push(normalized);
 		});
-		child.on('error', (error) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			reject(error);
-		});
+		child.on('error', fail);
 		child.on('close', (code, signal) => {
 			if (settled) {
 				return;
@@ -140,11 +140,12 @@ export class ExecExecutor implements Executor<ExecStepDefinition> {
 			cwd,
 			env,
 		});
+		const envKeys = env ? Object.keys(env).sort() : [];
 		const normalizedResult = {
 			code: result.code,
 			command: payload.command,
 			cwd,
-			env,
+			envKeys,
 			signal: result.signal,
 			stderr: result.stderr,
 			stdout: result.stdout,
