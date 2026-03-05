@@ -56,7 +56,14 @@ describe('CLI agent clients (D3)', () => {
 			args: [],
 			command: 'claude',
 			env: undefined,
-			input: 'system: You are a reviewer.\n\nuser: Review this patch',
+			input: JSON.stringify(
+				[
+					{ content: 'You are a reviewer.', role: 'system' },
+					{ content: 'Review this patch', role: 'user' },
+				],
+				null,
+				2,
+			),
 		});
 	});
 
