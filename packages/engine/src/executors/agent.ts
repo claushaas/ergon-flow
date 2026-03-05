@@ -28,10 +28,9 @@ function tryParseJson(value: string): unknown | undefined {
 }
 
 function normalizeAgentArtifactType(
-	step: AgentStepDefinition,
+	artifactName: string,
 	parsedJson: unknown,
 ): ArtifactType {
-	const artifactName = normalizeAgentArtifactName(step);
 	if (artifactName === 'analysis') {
 		return 'analysis';
 	}
@@ -74,7 +73,7 @@ export class AgentExecutor implements Executor<AgentStepDefinition> {
 		const parsedJson = tryParseJson(result.text);
 		const artifactName = normalizeAgentArtifactName(step);
 		const artifactValue = parsedJson ?? result.text;
-		const artifactType = normalizeAgentArtifactType(step, parsedJson);
+		const artifactType = normalizeAgentArtifactType(artifactName, parsedJson);
 
 		return {
 			artifacts: [
