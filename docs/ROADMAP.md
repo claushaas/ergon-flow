@@ -136,7 +136,7 @@ Deliverable: foundations compile + unit tests run.
 
 ## Scope B — Storage (SQLite) and migration bootstrap
 
-### Phase B1 — SQLite bootstrap
+### Phase B1 — SQLite bootstrap - ✅
 
 - Implement `packages/storage` with:
   - open DB
@@ -146,7 +146,7 @@ Deliverable: foundations compile + unit tests run.
   - `workflows`, `workflow_runs`, `step_runs`, `artifacts`, `events`, `workers`
   - indexes
 
-### Phase B2 — Storage API (minimal)
+### Phase B2 — Storage API (minimal) - ✅
 
 - Implement storage operations used by CLI/Worker:
   - `registerWorkflow(template)`
