@@ -1,25 +1,25 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(git add -A)",
-      "Bash(git commit -m \"Initial commit: Set up ergon-flow monorepo with pnpm and Biome\")",
-      "Bash(git add docs/AGENTS.md library/skills/)",
-      "Bash(git commit -m \"Add AGENTS.md documentation and skills library structure:*)",
-      "Bash(git commit:*)",
-      "Bash(git push origin main)",
-      "Bash(for pkg in cli engine runtime storage)",
-      "Bash(do)",
-      "Bash(echo \"=== $pkg ===\")",
-      "Read(//Volumes/dev/repos/ergon-flow/packages/$pkg/**)",
-      "Bash(done)",
-      "Bash(ls /Volumes/dev/repos/ergon-flow/tsconfig*.json)",
-      "Bash(pnpm install)",
-      "Bash(pnpm build)",
-      "Bash(for pkg in shared clients executors storage engine cli)",
-      "Bash(pnpm list -r --depth 0)",
-      "Bash(pnpm -r exec pwd)",
-      "Bash(git add package.json tsconfig.base.json tsconfig.json packages/cli/package.json packages/cli/tsconfig.json packages/engine/package.json packages/engine/tsconfig.json packages/storage/package.json packages/storage/tsconfig.json packages/clients/ packages/executors/ packages/shared/ packages/runtime/)",
-      "Bash(git push)"
-    ]
-  }
+	"permissions": {
+		"allow": [
+			"Bash(git add -A)",
+			"Bash(git commit -m \"Initial commit: Set up ergon-flow monorepo with pnpm and Biome\")",
+			"Bash(git add docs/AGENTS.md library/skills/)",
+			"Bash(git commit -m \"Add AGENTS.md documentation and skills library structure:*)",
+			"Bash(git commit:*)",
+			"Bash(git push origin main)",
+			"Bash(for pkg in cli engine runtime storage)",
+			"Bash(do)",
+			"Bash(echo \"=== $pkg ===\")",
+			"Read(//Volumes/dev/repos/ergon-flow/packages/$pkg/**)",
+			"Bash(done)",
+			"Bash(ls /Volumes/dev/repos/ergon-flow/tsconfig*.json)",
+			"Bash(pnpm install)",
+			"Bash(pnpm build)",
+			"Bash(for pkg in shared clients executors storage engine cli)",
+			"Bash(pnpm list -r --depth 0)",
+			"Bash(pnpm -r exec pwd)",
+			"Bash(git add package.json tsconfig.base.json tsconfig.json packages/cli/package.json packages/cli/tsconfig.json packages/engine/package.json packages/engine/tsconfig.json packages/storage/package.json packages/storage/tsconfig.json packages/clients/ packages/executors/ packages/shared/ packages/runtime/)",
+			"Bash(git push)"
+		]
+	}
 }

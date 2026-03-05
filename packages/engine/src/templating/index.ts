@@ -212,14 +212,16 @@ function normalizeSteps(rawSteps: unknown): StepDefinition[] {
 
 			return {
 				...step,
-				output: normalizeAgentStepOutput(step.output),
 				depends_on: dependsOn,
+				output: normalizeAgentStepOutput(step.output),
 			} as StepDefinition;
 		})
 		.filter((step): step is StepDefinition => step !== null);
 }
 
-function normalizeAgentStepOutput(rawOutput: unknown): AgentStepOutput | undefined {
+function normalizeAgentStepOutput(
+	rawOutput: unknown,
+): AgentStepOutput | undefined {
 	const output = asRecord(rawOutput);
 	if (!output) {
 		return undefined;
@@ -676,7 +678,7 @@ export function renderStepRequestPayload(
 			};
 		case 'notify':
 			return {
-				message: interpolateTemplateString(step.message, context, 'prompt'),
+				message: interpolateTemplateString(step.message, context, 'text'),
 			};
 		default: {
 			const payloadLessKind: 'artifact' | 'condition' | 'manual' = step.kind;

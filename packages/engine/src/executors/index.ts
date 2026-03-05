@@ -1,5 +1,6 @@
 import type {
 	ArtifactType,
+	EventType,
 	StepDefinition,
 	StepKind,
 	StepRunStatus,
@@ -9,6 +10,11 @@ export interface ExecutorArtifact {
 	name: string;
 	type: ArtifactType;
 	value: unknown;
+}
+
+export interface ExecutorEvent {
+	payload?: Record<string, unknown>;
+	type: EventType;
 }
 
 export interface ExecutionRunMetadata {
@@ -37,6 +43,7 @@ export interface CreateExecutionContextOptions {
 
 export interface ExecutorResult {
 	artifacts?: ExecutorArtifact[];
+	events?: ExecutorEvent[];
 	outputs?: Record<string, unknown>;
 	status: Extract<
 		StepRunStatus,
@@ -48,6 +55,8 @@ export interface Executor<TStep extends StepDefinition = StepDefinition> {
 	readonly kind: TStep['kind'];
 	execute(step: TStep, context: ExecutionContext): Promise<ExecutorResult>;
 }
+
+type RegisteredExecutor = Executor<StepDefinition>;
 
 export function createExecutionContext(
 	options: CreateExecutionContextOptions,
@@ -76,15 +85,15 @@ export function createExecutionContext(
 }
 
 export class ExecutorRegistry {
-	private readonly executors = new Map<StepKind, Executor<any>>();
+	private readonly executors = new Map<StepKind, RegisteredExecutor>();
 
-	public constructor(executors: Executor<any>[] = []) {
+	public constructor(executors: RegisteredExecutor[] = []) {
 		for (const executor of executors) {
 			this.register(executor);
 		}
 	}
 
-	public get(kind: StepKind): Executor<any> {
+	public get(kind: StepKind): RegisteredExecutor {
 		const executor = this.executors.get(kind);
 		if (!executor) {
 			throw new Error(`No executor registered for step kind "${kind}"`);
@@ -96,9 +105,11 @@ export class ExecutorRegistry {
 		return this.executors.has(kind);
 	}
 
-	public register(executor: Executor<any>): void {
+	public register(executor: RegisteredExecutor): void {
 		if (this.executors.has(executor.kind)) {
-			throw new Error(`Executor already registered for step kind "${executor.kind}"`);
+			throw new Error(
+				`Executor already registered for step kind "${executor.kind}"`,
+			);
 		}
 		this.executors.set(executor.kind, executor);
 	}

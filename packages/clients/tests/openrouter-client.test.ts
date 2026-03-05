@@ -30,8 +30,8 @@ describe('OpenRouterModelClient (D2)', () => {
 		});
 
 		const result = await client.run({
-			provider: 'openrouter',
 			prompt: 'Review this patch',
+			provider: 'openrouter',
 		});
 
 		expect(result.text).toBe('Refactor completed');
@@ -63,7 +63,7 @@ describe('OpenRouterModelClient (D2)', () => {
 					{
 						message: {
 							content: [
-								{ text: '{\"summary\":\"done\"}', type: 'text' },
+								{ text: '{"summary":"done"}', type: 'text' },
 								{ text: '', type: 'text' },
 							],
 						},
@@ -120,16 +120,16 @@ describe('OpenRouterModelClient (D2)', () => {
 
 		await expect(
 			client.run({
-				provider: 'openrouter',
 				prompt: 'Review this patch',
+				provider: 'openrouter',
 			}),
 		).rejects.toThrow('OpenRouter request must include a model');
 	});
 
 	it('includes upstream failure detail when the API returns a non-2xx response', async () => {
-		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-			new Response('rate limited', { status: 429 }),
-		);
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response('rate limited', { status: 429 }));
 		const client = new OpenRouterModelClient({
 			apiKey: 'test-key',
 			defaultModel: 'deepseek/deepseek-v3.2',
@@ -138,8 +138,8 @@ describe('OpenRouterModelClient (D2)', () => {
 
 		await expect(
 			client.run({
-				provider: 'openrouter',
 				prompt: 'Review this patch',
+				provider: 'openrouter',
 			}),
 		).rejects.toThrow('OpenRouter request failed (429): rate limited');
 	});
@@ -155,8 +155,8 @@ describe('OpenRouterModelClient (D2)', () => {
 
 		await expect(
 			client.run({
-				provider: 'openrouter',
 				prompt: 'Review this patch',
+				provider: 'openrouter',
 			}),
 		).rejects.toThrow('OpenRouter response did not include any choices');
 	});
@@ -172,8 +172,8 @@ describe('OpenRouterModelClient (D2)', () => {
 
 		await expect(
 			client.run({
-				provider: 'openrouter',
 				prompt: 'Review this patch',
+				provider: 'openrouter',
 			}),
 		).rejects.toThrow('OpenRouter response did not include a message');
 	});
@@ -191,8 +191,8 @@ describe('OpenRouterModelClient (D2)', () => {
 
 		await expect(
 			client.run({
-				provider: 'openrouter',
 				prompt: 'Review this patch',
+				provider: 'openrouter',
 			}),
 		).rejects.toThrow('OpenRouter response message content is empty');
 	});

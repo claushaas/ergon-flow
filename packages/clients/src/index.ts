@@ -62,12 +62,14 @@ export interface CliClientOptions extends CliAgentProviderConfig {
 
 const OPENROUTER_ALLOWED_HOSTS = new Set(['openrouter.ai']);
 const OLLAMA_ALLOWED_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
-const CLI_ALLOWED_COMMANDS: Record<'claude-code' | 'codex' | 'openclaw', string[]> =
-	{
-		'claude-code': ['claude', 'claude-code'],
-		codex: ['codex'],
-		openclaw: ['openclaw'],
-	};
+const CLI_ALLOWED_COMMANDS: Record<
+	'claude-code' | 'codex' | 'openclaw',
+	string[]
+> = {
+	'claude-code': ['claude', 'claude-code'],
+	codex: ['codex'],
+	openclaw: ['openclaw'],
+};
 const CLI_ALLOWED_ENV_PREFIXES: Record<
 	'claude-code' | 'codex' | 'openclaw',
 	string
@@ -108,7 +110,10 @@ function parseBaseUrl(baseUrl: unknown, provider: Provider): URL | undefined {
 	}
 }
 
-function validateBaseUrl(baseUrl: unknown, provider: Provider): URL | undefined {
+function validateBaseUrl(
+	baseUrl: unknown,
+	provider: Provider,
+): URL | undefined {
 	const parsedUrl = parseBaseUrl(baseUrl, provider);
 	if (!parsedUrl) {
 		return undefined;
@@ -275,7 +280,10 @@ function resolveOllamaText(payload: unknown, providerLabel: string): string {
 	return text;
 }
 
-function resolveCliInput(request: ClientRequest, providerLabel: string): string {
+function resolveCliInput(
+	request: ClientRequest,
+	providerLabel: string,
+): string {
 	const messages = request.messages;
 	if (messages && messages.length > 0) {
 		return JSON.stringify(
@@ -575,7 +583,9 @@ export function createDefaultClients(
 		.filter((client): client is ExecutionClient => client !== undefined);
 }
 
-export function createClientRegistry(configs: ProviderConfigMap = {}): ClientRegistry {
+export function createClientRegistry(
+	configs: ProviderConfigMap = {},
+): ClientRegistry {
 	return new ClientRegistry({
 		clients: createDefaultClients(configs),
 		configs,

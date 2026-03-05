@@ -1,13 +1,10 @@
-import type {
-	ExecStepDefinition,
-	ManualStepDefinition,
-} from '@ergon/shared';
+import type { ExecStepDefinition, ManualStepDefinition } from '@ergon/shared';
 import { describe, expect, it } from 'vitest';
 import {
 	createExecutionContext,
-	ExecutorRegistry,
 	type ExecutionContext,
 	type Executor,
+	ExecutorRegistry,
 	type ExecutorResult,
 } from '../src/executors/index.js';
 
@@ -39,10 +36,19 @@ class StubManualExecutor implements Executor<ManualStepDefinition> {
 	public readonly kind = 'manual' as const;
 
 	public async execute(
-		_step: ManualStepDefinition,
-		_context: ExecutionContext,
+		step: ManualStepDefinition,
+		context: ExecutionContext,
 	): Promise<ExecutorResult> {
 		return {
+			events: [
+				{
+					payload: {
+						runId: context.run.runId,
+						stepId: step.id,
+					},
+					type: 'manual_waiting',
+				},
+			],
 			status: 'waiting_manual',
 		};
 	}
@@ -61,9 +67,9 @@ describe('executor framework (E1)', () => {
 				attempt: 2,
 				runId: 'run_123',
 				stepIndex: 1,
+				workerId: 'worker_a',
 				workflowId: 'code.refactor',
 				workflowVersion: 3,
-				workerId: 'worker_a',
 			},
 		});
 
@@ -72,9 +78,9 @@ describe('executor framework (E1)', () => {
 			attempt: 2,
 			runId: 'run_123',
 			stepIndex: 1,
+			workerId: 'worker_a',
 			workflowId: 'code.refactor',
 			workflowVersion: 3,
-			workerId: 'worker_a',
 		});
 		expect(context.hasArtifact('analysis')).toBe(true);
 		expect(context.getArtifact('analysis')).toEqual({ summary: 'ready' });

@@ -48,8 +48,8 @@ describe('AgentExecutor (E2)', () => {
 			id: 'analyze',
 			kind: 'agent',
 			model: 'deepseek/deepseek-v3.2',
-			provider: 'openrouter',
 			prompt: 'Task {{ inputs.task }} / Existing {{ artifacts.repo.summary }}',
+			provider: 'openrouter',
 		};
 		const context = createExecutionContext({
 			artifacts: {
@@ -112,8 +112,8 @@ describe('AgentExecutor (E2)', () => {
 		const step: AgentStepDefinition = {
 			id: 'plan',
 			kind: 'agent',
-			provider: 'openrouter',
 			prompt: 'Return a plan',
+			provider: 'openrouter',
 		};
 		const context = createExecutionContext({
 			inputs: {},
@@ -151,8 +151,8 @@ describe('AgentExecutor (E2)', () => {
 		const step: AgentStepDefinition = {
 			id: 'patch',
 			kind: 'agent',
-			provider: 'codex',
 			prompt: 'Generate diff',
+			provider: 'codex',
 		};
 		const context = createExecutionContext({
 			inputs: {},
@@ -194,8 +194,8 @@ describe('AgentExecutor (E2)', () => {
 				name: 'review',
 				type: 'json',
 			},
-			provider: 'openrouter',
 			prompt: 'Summarize changes',
+			provider: 'openrouter',
 		};
 		const context = createExecutionContext({
 			inputs: {},

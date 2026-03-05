@@ -222,7 +222,7 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
 
 ---
 
-## Scope E — Executors (step types)
+## Scope E — Executors (step types) - ✅
 
 ### Phase E1 — Executor framework - ✅
 
@@ -241,31 +241,31 @@ Deliverable: a harness test can call OpenRouter adapter and persist response.
   - `analysis` / `plan` / `text` / `json` (as configured)
 - Handle retry policy (record attempt)
 
-### Phase E3 — exec executor
+### Phase E3 — exec executor - ✅
 
 - Execute local command (controlled env)
 - Capture stdout/stderr/exit code
 - Produce artifacts:
   - `exec.stdout`, `exec.stderr`, `exec.result`
 
-### Phase E4 — condition executor
+### Phase E4 — condition executor - ✅
 
 - Evaluate expression (minimal):
   - boolean over known values (inputs/artifacts)
 - Mark downstream steps as `skipped` when false
 
-### Phase E5 — manual executor
+### Phase E5 — manual executor - ✅
 
 - Transition run to `waiting_manual`
 - Persist event `manual_waiting`
 - Stop execution loop cleanly
 
-### Phase E6 — notify executor
+### Phase E6 — notify executor - ✅
 
 - Minimal notifier: stdout + optional webhook
 - Optional: OpenClaw `openclaw message send ...` integration later
 
-### Phase E7 — artifact executor (minimal)
+### Phase E7 — artifact executor (minimal) - ✅
 
 - Minimal operations:
   - rename/copy JSON
