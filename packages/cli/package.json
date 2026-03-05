@@ -1,17 +1,17 @@
 {
-	"name": "@ergon/cli",
-	"version": "0.1.0",
-	"type": "module",
 	"bin": {
 		"ergon": "dist/main.js"
 	},
+	"dependencies": {
+		"@ergon/engine": "workspace:*",
+		"@ergon/storage": "workspace:*"
+	},
+	"name": "@ergon/cli",
 	"scripts": {
 		"build": "tsc --build",
 		"dev": "node src/main.ts",
 		"test": "echo cli tests placeholder"
 	},
-	"dependencies": {
-		"@ergon/engine": "workspace:*",
-		"@ergon/storage": "workspace:*"
-	}
+	"type": "module",
+	"version": "0.1.0"
 }

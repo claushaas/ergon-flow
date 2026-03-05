@@ -1,15 +1,15 @@
 {
-	"name": "@ergon/executors",
-	"version": "0.1.0",
-	"type": "module",
+	"dependencies": {
+		"@ergon/clients": "workspace:*",
+		"@ergon/shared": "workspace:*"
+	},
 	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
+	"name": "@ergon/executors",
 	"scripts": {
 		"build": "tsc --build",
 		"test": "echo executors tests placeholder"
 	},
-	"dependencies": {
-		"@ergon/clients": "workspace:*",
-		"@ergon/shared": "workspace:*"
-	}
+	"type": "module",
+	"types": "dist/index.d.ts",
+	"version": "0.1.0"
 }

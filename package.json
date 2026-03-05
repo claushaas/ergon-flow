@@ -1,17 +1,17 @@
 {
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.5",
-    "@types/node": "^25.3.3",
-    "typescript": "^5.0.0",
-    "vitest": "^4.0.18"
-  },
-  "name": "ergon-flow",
-  "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017",
-  "private": true,
-  "scripts": {
-    "build": "tsc --build",
-    "dev": "pnpm --filter @ergon/cli dev",
-    "test": "vitest run"
-  },
-  "version": "0.1.0"
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.5",
+		"@types/node": "^25.3.3",
+		"typescript": "^5.0.0",
+		"vitest": "^4.0.18"
+	},
+	"name": "ergon-flow",
+	"packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017",
+	"private": true,
+	"scripts": {
+		"build": "tsc --build",
+		"dev": "pnpm --filter @ergon/cli dev",
+		"test": "vitest run"
+	},
+	"version": "0.1.0"
 }

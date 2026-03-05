@@ -1,16 +1,16 @@
 {
-	"name": "@ergon/engine",
-	"version": "0.1.0",
-	"type": "module",
-	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
-	"scripts": {
-		"build": "tsc --build",
-		"test": "echo engine tests placeholder"
-	},
 	"dependencies": {
 		"@ergon/executors": "workspace:*",
 		"@ergon/shared": "workspace:*",
 		"@ergon/storage": "workspace:*"
-	}
+	},
+	"main": "dist/index.js",
+	"name": "@ergon/engine",
+	"scripts": {
+		"build": "tsc --build",
+		"test": "echo engine tests placeholder"
+	},
+	"type": "module",
+	"types": "dist/index.d.ts",
+	"version": "0.1.0"
 }

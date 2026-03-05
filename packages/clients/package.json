@@ -1,14 +1,14 @@
 {
-	"name": "@ergon/clients",
-	"version": "0.1.0",
-	"type": "module",
+	"dependencies": {
+		"@ergon/shared": "workspace:*"
+	},
 	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
+	"name": "@ergon/clients",
 	"scripts": {
 		"build": "tsc --build",
 		"test": "echo clients tests placeholder"
 	},
-	"dependencies": {
-		"@ergon/shared": "workspace:*"
-	}
+	"type": "module",
+	"types": "dist/index.d.ts",
+	"version": "0.1.0"
 }

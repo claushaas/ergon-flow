@@ -1,11 +1,11 @@
 {
-	"name": "@ergon/storage",
-	"version": "0.1.0",
-	"type": "module",
 	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
+	"name": "@ergon/storage",
 	"scripts": {
 		"build": "tsc --build",
 		"test": "vitest run"
-	}
+	},
+	"type": "module",
+	"types": "dist/index.d.ts",
+	"version": "0.1.0"
 }
