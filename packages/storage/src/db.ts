@@ -9,6 +9,10 @@ export interface StorageDbOptions {
 	migrationsDir?: string;
 }
 
+export interface TransactionOptions {
+	mode?: 'DEFERRED' | 'EXCLUSIVE' | 'IMMEDIATE';
+}
+
 const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 const DEFAULT_MIGRATIONS_DIR = fileURLToPath(
 	new URL('./migrations', import.meta.url),
@@ -25,6 +29,30 @@ export function openStorageDb(options: StorageDbOptions): DatabaseSync {
 		return db;
 	} catch (error) {
 		db.close();
+		throw error;
+	}
+}
+
+export function runInTransaction<T>(
+	db: DatabaseSync,
+	callback: () => T,
+	options: TransactionOptions = {},
+): T {
+	const mode = options.mode ?? 'DEFERRED';
+	if (mode !== 'DEFERRED' && mode !== 'EXCLUSIVE' && mode !== 'IMMEDIATE') {
+		throw new Error(`Invalid transaction mode: ${String(mode)}`);
+	}
+	db.exec(`BEGIN ${mode};`);
+	try {
+		const result = callback();
+		db.exec('COMMIT;');
+		return result;
+	} catch (error) {
+		try {
+			db.exec('ROLLBACK;');
+		} catch {
+			// Keep the original failure as the primary error.
+		}
 		throw error;
 	}
 }
@@ -70,20 +98,5 @@ function runMigrations(db: DatabaseSync, migrationsDir: string): void {
 			db.exec(sql);
 			insertMigration.run(migrationFile, new Date().toISOString());
 		});
-	}
-}
-
-function runInTransaction(db: DatabaseSync, callback: () => void): void {
-	db.exec('BEGIN;');
-	try {
-		callback();
-		db.exec('COMMIT;');
-	} catch (error) {
-		try {
-			db.exec('ROLLBACK;');
-		} catch {
-			// Keep the original failure as the primary error.
-		}
-		throw error;
 	}
 }

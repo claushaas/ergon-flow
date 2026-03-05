@@ -2,7 +2,8 @@
 	"dependencies": {
 		"@ergon/executors": "workspace:*",
 		"@ergon/shared": "workspace:*",
-		"@ergon/storage": "workspace:*"
+		"@ergon/storage": "workspace:*",
+		"yaml": "^2.8.2"
 	},
 	"main": "dist/index.js",
 	"name": "@ergon/engine",

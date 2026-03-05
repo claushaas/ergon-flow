@@ -134,9 +134,9 @@ Deliverable: foundations compile + unit tests run.
 
 ---
 
-## Scope B — Storage (SQLite) and migration bootstrap
+## Scope B — Storage (SQLite) and migration bootstrap - ✅
 
-### Phase B1 — SQLite bootstrap
+### Phase B1 — SQLite bootstrap - ✅
 
 - Implement `packages/storage` with:
   - open DB
@@ -146,7 +146,7 @@ Deliverable: foundations compile + unit tests run.
   - `workflows`, `workflow_runs`, `step_runs`, `artifacts`, `events`, `workers`
   - indexes
 
-### Phase B2 — Storage API (minimal)
+### Phase B2 — Storage API (minimal) - ✅
 
 - Implement storage operations used by CLI/Worker:
   - `registerWorkflow(template)`
@@ -158,7 +158,7 @@ Deliverable: foundations compile + unit tests run.
   - `updateStepRunStatus(step_run_id, status, ...)`
   - `insertArtifact(run_id, step_run_id, ...)`
 
-### Phase B3 — Claim/lease primitives
+### Phase B3 — Claim/lease primitives - ✅
 
 - Implement atomic claim:
   - `claimNextRun(worker_id, lease_duration)`
@@ -173,19 +173,19 @@ Deliverable: a storage-only test can enqueue and claim a run safely with two sim
 
 ## Scope C — Template loading and validation
 
-### Phase C1 — YAML loader
+### Phase C1 — YAML loader - ✅
 
 - Load YAML templates from `/templates`
 - Normalize template structure (`workflow`, `inputs`, `steps`, `outputs`)
 
-### Phase C2 — Schema validation (static)
+### Phase C2 — Schema validation (static) - ✅
 
 - Validate required fields per `TEMPLATE_SPEC.md`
 - Validate step ids unique
 - Validate `depends_on` references
 - Validate provider fields on `agent` steps
 
-### Phase C3 — Interpolation (minimal)
+### Phase C3 — Interpolation (minimal) - ✅
 
 - Implement interpolation engine with strict rules:
   - allowed sources: `inputs.*`, `artifacts.*`
