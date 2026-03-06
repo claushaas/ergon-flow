@@ -17,6 +17,7 @@ import {
 } from '@ergon/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideManualStep } from '../src/commands/approve.js';
+import { cancelWorkflowRun } from '../src/commands/cancel.js';
 import { getRunStatus, scheduleRun } from '../src/commands/run.js';
 import { listTemplates } from '../src/commands/template.js';
 import { syncWorkflows } from '../src/commands/workflow.js';
@@ -294,6 +295,82 @@ steps:
 		expect(
 			listEvents(verificationDb, run.id).map((event) => event.type),
 		).toEqual(['manual_rejected', 'step_failed', 'workflow_failed']);
+		verificationDb.close();
+	});
+
+	it('cancels a queued run and appends workflow_canceled', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		writeWorkflow(
+			rootDir,
+			'code.cancel.yaml',
+			`
+workflow:
+  id: code.cancel
+  version: 1
+steps:
+  - id: echo
+    kind: exec
+    command: "echo cancel"
+`,
+		);
+
+		const run = scheduleRun('code.cancel', {
+			dbPath,
+			rootDir,
+		});
+		const canceledRun = cancelWorkflowRun(run.id, { dbPath, rootDir });
+
+		expect(canceledRun.status).toBe('canceled');
+
+		const verificationDb = openStorageDb({ dbPath });
+		expect(getRun(verificationDb, run.id)?.status).toBe('canceled');
+		expect(
+			listEvents(verificationDb, run.id).map((event) => event.type),
+		).toEqual(['workflow_canceled']);
+		verificationDb.close();
+	});
+
+	it('cancels a waiting manual run without mutating step state', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		const db = openStorageDb({ dbPath });
+
+		registerWorkflow(db, {
+			hash: 'hash-cancel-manual-v1',
+			id: 'code.cancel.manual',
+			sourcePath: 'library/workflows/code.cancel.manual.yaml',
+			version: 1,
+		});
+		const run = createRun(
+			db,
+			'code.cancel.manual',
+			{},
+			{
+				workflowHash: 'hash-cancel-manual-v1',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-3', 30_000)?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-3', 0, 'gate');
+		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
+		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
+			finishedAt: new Date().toISOString(),
+			startedAt: new Date().toISOString(),
+		});
+		markRunWaitingManual(db, run.id, 'worker-3');
+		db.close();
+
+		const canceledRun = cancelWorkflowRun(run.id, { dbPath, rootDir });
+		expect(canceledRun.status).toBe('canceled');
+
+		const verificationDb = openStorageDb({ dbPath });
+		expect(listStepRuns(verificationDb, run.id)[0]?.status).toBe(
+			'waiting_manual',
+		);
+		expect(
+			listEvents(verificationDb, run.id).map((event) => event.type),
+		).toEqual(['workflow_canceled']);
 		verificationDb.close();
 	});
 });

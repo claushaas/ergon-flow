@@ -130,6 +130,12 @@ export interface DecideManualStepResult {
 	stepRunId: string;
 }
 
+export interface CancelRunOptions {
+	actor: string;
+	finishedAt?: string;
+	reason?: string;
+}
+
 function addMilliseconds(
 	isoTimestamp: string,
 	leaseDurationMs: number,
@@ -743,6 +749,68 @@ export function decideManualStep(
 				run: failedRun,
 				stepRunId: waitingStepRun.id,
 			};
+		},
+		{ mode: 'IMMEDIATE' },
+	);
+}
+
+export function cancelRun(
+	db: DatabaseSync,
+	runId: string,
+	options: CancelRunOptions,
+): WorkflowRunRow {
+	return runInTransaction(
+		db,
+		() => {
+			const run = getRun(db, runId);
+			if (!run) {
+				throw new Error(`Workflow run "${runId}" was not found`);
+			}
+
+			if (run.status === 'failed' || run.status === 'succeeded') {
+				throw new Error(
+					`Workflow run "${runId}" is already ${run.status} and cannot be canceled`,
+				);
+			}
+
+			if (run.status === 'canceled') {
+				return run;
+			}
+
+			const finishedAt = options.finishedAt ?? new Date().toISOString();
+			const row = db
+				.prepare(
+					`UPDATE workflow_runs
+					 SET status = 'canceled',
+					     claimed_by = NULL,
+					     lease_until = NULL,
+					     finished_at = ?,
+					     updated_at = ?
+					 WHERE id = ?
+					   AND status IN ('queued', 'running', 'waiting_manual')
+					 RETURNING *;`,
+				)
+				.get(finishedAt, finishedAt, runId);
+
+			const canceledRun = assertRow<WorkflowRunRow>(
+				row,
+				`Failed to cancel workflow run ${runId}`,
+			);
+
+			appendEventInTransaction(
+				db,
+				runId,
+				'workflow_canceled',
+				{
+					reason: options.reason ?? 'external_cancel',
+				},
+				{
+					actor: options.actor,
+					ts: finishedAt,
+				},
+			);
+
+			return canceledRun;
 		},
 		{ mode: 'IMMEDIATE' },
 	);

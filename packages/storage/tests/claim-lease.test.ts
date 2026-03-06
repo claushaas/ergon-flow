@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+	cancelRun,
 	claimNextRun,
 	createRun,
+	listEvents,
 	markRunCanceled,
 	markRunFailed,
 	markRunSucceeded,
@@ -232,6 +234,67 @@ describe('claim and lease primitives (B3)', () => {
 		expect(reclaimed?.id).toBe('run-reclaim');
 		expect(reclaimed?.claimed_by).toBe('worker-2');
 		expect(reclaimed?.attempt).toBe(1);
+
+		db.close();
+	});
+
+	it('cancels queued and waiting_manual runs via external actor', () => {
+		const db = openStorageDb({ dbPath: createTempDbPath() });
+
+		registerWorkflow(db, {
+			hash: 'hash-cancel-v1',
+			id: 'code.cancel',
+			sourcePath: 'library/workflows/code.cancel.yaml',
+			version: 1,
+		});
+
+		const queued = createRun(
+			db,
+			'code.cancel',
+			{},
+			{
+				id: 'run-cancel-queued',
+				workflowHash: 'hash-cancel-v1',
+				workflowVersion: 1,
+			},
+		);
+		const waiting = createRun(
+			db,
+			'code.cancel',
+			{},
+			{
+				id: 'run-cancel-waiting',
+				priority: 1,
+				workflowHash: 'hash-cancel-v1',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-7', 30_000)?.id).toBe(waiting.id);
+		db.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'waiting_manual',
+			     claimed_by = NULL,
+			     lease_until = NULL
+			 WHERE id = ?;`,
+		).run(waiting.id);
+
+		expect(
+			cancelRun(db, queued.id, {
+				actor: 'cli:test-user',
+			}).status,
+		).toBe('canceled');
+		expect(
+			cancelRun(db, waiting.id, {
+				actor: 'cli:test-user',
+			}).status,
+		).toBe('canceled');
+
+		expect(
+			listEvents(db, queued.id).map((event) => [event.type, event.actor]),
+		).toEqual([['workflow_canceled', 'cli:test-user']]);
+		expect(
+			listEvents(db, waiting.id).map((event) => [event.type, event.actor]),
+		).toEqual([['workflow_canceled', 'cli:test-user']]);
 
 		db.close();
 	});
