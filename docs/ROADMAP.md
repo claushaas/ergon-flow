@@ -309,7 +309,7 @@ Deliverable: a single run is fully replayable from DB state.
 
 ---
 
-## Scope G — Worker Runtime
+## Scope G — Worker Runtime - ✅
 
 ### Phase G1 — Worker loop - ✅
 
