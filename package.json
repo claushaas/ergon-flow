@@ -12,7 +12,8 @@
 		"biome": "biome check --unsafe --write",
 		"build": "tsc --build",
 		"dev": "pnpm --filter @ergon/cli dev",
-		"test": "vitest run"
+		"test": "vitest run",
+		"typecheck": "tsc --build --pretty false"
 	},
 	"version": "0.1.0"
 }
