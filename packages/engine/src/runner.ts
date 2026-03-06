@@ -15,7 +15,9 @@ import {
 	artifactsDir,
 	assertSafeSegment,
 	createStepRun,
+	getLatestEventForStepRun,
 	getRun,
+	getWaitingManualStepRun,
 	getWorkflow,
 	insertArtifact,
 	listArtifacts,
@@ -846,6 +848,106 @@ function abortIfCanceled(
 	return currentRun;
 }
 
+function replaceStepRunSnapshot(
+	stepRuns: ReturnType<typeof listStepRuns>,
+	stepRunId: string,
+	patch: Partial<ReturnType<typeof listStepRuns>[number]>,
+): void {
+	const index = stepRuns.findIndex((stepRun) => stepRun.id === stepRunId);
+	if (index < 0) {
+		return;
+	}
+
+	stepRuns[index] = {
+		...stepRuns[index],
+		...patch,
+	};
+}
+
+function resumeApprovedManualStep(
+	options: ExecuteStepOptions,
+): ExecuteStepResult | null {
+	if (options.step.kind !== 'manual') {
+		return null;
+	}
+
+	const waitingStepRun = getWaitingManualStepRun(
+		options.db,
+		options.runId,
+		options.step.id,
+	);
+	if (!waitingStepRun) {
+		return null;
+	}
+
+	const approvalEvent = getLatestEventForStepRun(
+		options.db,
+		options.runId,
+		waitingStepRun.id,
+		['manual_approved'],
+	);
+	if (!approvalEvent) {
+		return null;
+	}
+
+	const approvalOutput = {
+		approved_at: approvalEvent.ts,
+		approved_by: approvalEvent.actor,
+		decision: 'approve',
+	};
+	updateStepRunStatus(options.db, waitingStepRun.id, 'succeeded', {
+		finishedAt: approvalEvent.ts,
+		output: approvalOutput,
+	});
+	appendEvent(
+		options.db,
+		options.runId,
+		'step_succeeded',
+		{
+			artifact_names: [],
+			step_id: options.step.id,
+		},
+		{
+			actor: `worker:${options.workerId}`,
+			stepRunId: waitingStepRun.id,
+		},
+	);
+	options.state.completedSteps.set(options.step.id, {
+		output: approvalOutput,
+		status: 'succeeded',
+	});
+	replaceStepRunSnapshot(options.stepRuns, waitingStepRun.id, {
+		finished_at: approvalEvent.ts,
+		output_json: safeJsonStringify(approvalOutput),
+		status: 'succeeded',
+	});
+
+	const runCanceledDuringStep = abortIfCanceled(
+		options.db,
+		options.runId,
+		options.workerId,
+		'canceled_during_step',
+	);
+	if (runCanceledDuringStep) {
+		return {
+			canceledRun: runCanceledDuringStep,
+			shouldContinue: false,
+		};
+	}
+
+	updateRunCursor(
+		options.db,
+		options.runId,
+		options.workerId,
+		options.stepIndex + 1,
+		options.template.steps[options.stepIndex + 1]?.id ?? null,
+	);
+	return {
+		canceledRun: null,
+		shouldContinue: true,
+	};
+}
+
 async function executeStep(
 	options: ExecuteStepOptions,
 ): Promise<ExecuteStepResult> {
@@ -860,6 +962,11 @@ async function executeStep(
 			canceledRun,
 			shouldContinue: false,
 		};
+	}
+
+	const resumedManualStep = resumeApprovedManualStep(options);
+	if (resumedManualStep) {
+		return resumedManualStep;
 	}
 
 	updateRunCursor(

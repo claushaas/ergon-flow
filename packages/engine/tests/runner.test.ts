@@ -18,6 +18,7 @@ import {
 	markRunCanceled,
 	openStorageDb,
 	registerWorkflow,
+	requeueRunFromManual,
 	updateRunCursor,
 	updateStepRunStatus,
 } from '@ergon/storage';
@@ -438,6 +439,113 @@ steps:
 		expect(eventRows.map((event) => event.type)).toEqual([
 			'step_started',
 			'manual_waiting',
+		]);
+
+		db.close();
+	});
+
+	it('resumes an approved manual step without pausing the run again', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.manual.resume
+  version: 1
+steps:
+  - id: gate
+    kind: manual
+    message: "Approve execution"
+  - id: notify
+    kind: notify
+    channel: stdout
+    message: "approved"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-manual-resume-v1',
+			id: 'test.manual.resume',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.manual.resume',
+			{},
+			{
+				workflowHash: 'hash-manual-resume-v1',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-4', 30_000)?.id).toBe(queuedRun.id);
+
+		const pausedRun = await executeRun(queuedRun.id, 'worker-4', {
+			db,
+			executors: new ExecutorRegistry([new ManualExecutor()]),
+			rootDir,
+		});
+
+		expect(pausedRun?.status).toBe('waiting_manual');
+		const waitingStepRun = listStepRuns(db, queuedRun.id)[0];
+		expect(waitingStepRun?.status).toBe('waiting_manual');
+
+		appendEvent(
+			db,
+			queuedRun.id,
+			'manual_approved',
+			{
+				decision: 'approve',
+				step_id: 'gate',
+			},
+			{
+				actor: 'cli:test-user',
+				stepRunId: waitingStepRun?.id,
+			},
+		);
+		expect(requeueRunFromManual(db, queuedRun.id)?.status).toBe('queued');
+		expect(claimNextRun(db, 'worker-5', 30_000)?.id).toBe(queuedRun.id);
+
+		const log = vi.fn();
+		const resumedRun = await executeRun(queuedRun.id, 'worker-5', {
+			db,
+			executors: new ExecutorRegistry([
+				new ManualExecutor(),
+				new NotifyExecutor({ log }),
+			]),
+			rootDir,
+		});
+
+		expect(resumedRun?.status).toBe('succeeded');
+		expect(log).toHaveBeenCalledWith(JSON.stringify('approved'));
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(
+			stepRuns.map((stepRun) => [
+				stepRun.step_id,
+				stepRun.attempt,
+				stepRun.status,
+			]),
+		).toEqual([
+			['gate', 1, 'succeeded'],
+			['notify', 1, 'succeeded'],
+		]);
+
+		const eventRows = db
+			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
+			.all(queuedRun.id) as Array<{ type: string }>;
+		expect(eventRows.map((event) => event.type)).toEqual([
+			'step_started',
+			'manual_waiting',
+			'manual_approved',
+			'step_succeeded',
+			'step_started',
+			'step_succeeded',
+			'workflow_succeeded',
 		]);
 
 		db.close();

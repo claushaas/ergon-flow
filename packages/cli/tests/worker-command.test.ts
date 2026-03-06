@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { parseApproveCommandArgs } from '../src/commands/approve.js';
 import { parseWorkerCommandArgs } from '../src/commands/worker.js';
 import { loadCliConfig } from '../src/config/index.js';
 
@@ -51,6 +52,28 @@ describe('parseWorkerCommandArgs', () => {
 		expect(() =>
 			parseWorkerCommandArgs(['--db', '--worker-id', 'worker-a']),
 		).toThrow('Missing value for --db');
+	});
+});
+
+describe('parseApproveCommandArgs', () => {
+	it('accepts the decision flag before or after the step id', () => {
+		expect(parseApproveCommandArgs(['gate', '--decision', 'approve'])).toEqual({
+			decision: 'approve',
+			stepId: 'gate',
+		});
+		expect(parseApproveCommandArgs(['--decision', 'reject', 'gate'])).toEqual({
+			decision: 'reject',
+			stepId: 'gate',
+		});
+	});
+
+	it('rejects missing decision values and missing step ids', () => {
+		expect(() => parseApproveCommandArgs(['gate', '--decision'])).toThrow(
+			'Missing value for "--decision"',
+		);
+		expect(() => parseApproveCommandArgs(['--decision', 'approve'])).toThrow(
+			'Missing required argument: <step_id>',
+		);
 	});
 });
 
