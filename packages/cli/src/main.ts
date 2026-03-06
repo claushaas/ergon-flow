@@ -4,6 +4,7 @@ import {
 	parseApproveCommandArgs,
 	runApproveCommand,
 } from './commands/approve.js';
+import { runCancelCommand } from './commands/cancel.js';
 import { runRunCommand, runRunStatusCommand } from './commands/run.js';
 import { runTemplateListCommand } from './commands/template.js';
 import { parseWorkerCommandArgs, runWorkerCommand } from './commands/worker.js';
@@ -27,6 +28,10 @@ async function main(argv: string[]): Promise<void> {
 	if (command === 'approve' && subcommand) {
 		const { decision, stepId } = parseApproveCommandArgs(rest);
 		runApproveCommand(subcommand, stepId, { decision });
+		return;
+	}
+	if (command === 'cancel' && subcommand) {
+		runCancelCommand(subcommand);
 		return;
 	}
 	if (command === 'run' && subcommand) {

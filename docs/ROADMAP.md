@@ -331,7 +331,7 @@ Deliverable: kill -9 worker mid-run, restart worker, run resumes deterministical
 
 ---
 
-## Scope H — CLI (user-facing commands)
+## Scope H — CLI (user-facing commands) - ✅
 
 ### Phase H1 — Core commands - ✅
 
@@ -346,7 +346,7 @@ Deliverable: kill -9 worker mid-run, restart worker, run resumes deterministical
 - Persist approval as event
 - Transition run back to `queued` (or continue execution) depending on decision
 
-### Phase H3 — Cancellation
+### Phase H3 — Cancellation - ✅
 
 - `ergon cancel <run_id>`
 
