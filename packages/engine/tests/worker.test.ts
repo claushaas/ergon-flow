@@ -3,10 +3,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
 	createRun,
+	createStepRun,
 	getWorker,
 	listRuns,
+	listStepRuns,
 	openStorageDb,
 	registerWorkflow,
+	updateRunCursor,
+	updateStepRunStatus,
 } from '@ergon/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExecExecutor, ExecutorRegistry, startWorker } from '../src/index.js';
@@ -135,6 +139,337 @@ steps:
 		expect(worker?.hostname).toBe('worker-host');
 		expect(worker?.pid).toBe(1111);
 		expect(worker?.last_beat_at).toBeTruthy();
+
+		db.close();
+	});
+
+	it('retries the in-flight step after reclaiming an expired lease', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.worker.recovery
+  version: 1
+steps:
+  - id: recover.exec
+    kind: exec
+    command: "echo recovered"
+    retry:
+      max_attempts: 2
+      on:
+        - exec_failed
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-worker-recovery-v1',
+			id: 'test.worker.recovery',
+			sourcePath,
+			version: 1,
+		});
+		createRun(
+			db,
+			'test.worker.recovery',
+			{},
+			{
+				id: 'run-worker-recovery',
+				workflowHash: 'hash-worker-recovery-v1',
+				workflowVersion: 1,
+			},
+		);
+
+		const claimedRun = db
+			.prepare(
+				`UPDATE workflow_runs
+				 SET status = 'running',
+				     claimed_by = 'worker-dead',
+				     lease_until = ?,
+				     started_at = ?,
+				     updated_at = ?,
+				     current_step_id = 'recover.exec',
+				     current_step_index = 0,
+				     attempt = 1
+				 WHERE id = 'run-worker-recovery'
+				 RETURNING *;`,
+			)
+			.get(
+				'2026-03-05T00:00:00.000Z',
+				'2026-03-05T00:00:00.000Z',
+				'2026-03-05T00:00:00.000Z',
+			);
+		expect(claimedRun).toBeTruthy();
+
+		const staleStepRun = createStepRun(
+			db,
+			'run-worker-recovery',
+			'recover.exec',
+			1,
+			'exec',
+		);
+		updateStepRunStatus(db, staleStepRun.id, 'running', {
+			startedAt: '2026-03-05T00:00:00.000Z',
+		});
+		updateRunCursor(
+			db,
+			'run-worker-recovery',
+			'worker-dead',
+			0,
+			'recover.exec',
+		);
+
+		const executors = new ExecutorRegistry([
+			new ExecExecutor({
+				async spawn() {
+					return {
+						code: 0,
+						signal: null,
+						stderr: '',
+						stdout: 'recovered\n',
+					};
+				},
+			}),
+		]);
+
+		const result = await startWorker({
+			db,
+			executors,
+			maxRuns: 1,
+			pollIntervalMs: 5,
+			rootDir,
+			workerId: 'worker-recovered',
+		});
+
+		expect(result.processedRuns).toBe(1);
+
+		const run = listRuns(db, { workflowId: 'test.worker.recovery' })[0];
+		expect(run?.status).toBe('succeeded');
+
+		const stepRuns = listStepRuns(db, 'run-worker-recovery');
+		expect(stepRuns).toHaveLength(2);
+		expect(stepRuns.map((stepRun) => stepRun.status)).toEqual([
+			'failed',
+			'succeeded',
+		]);
+
+		const retryEvents = db
+			.prepare(
+				`SELECT COUNT(*) as total
+				 FROM events
+				 WHERE run_id = ?
+				   AND type = 'step_retry';`,
+			)
+			.get('run-worker-recovery') as { total: number };
+		expect(retryEvents.total).toBe(1);
+
+		db.close();
+	});
+
+	it('fails the run when an expired in-flight step cannot be retried', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.worker.recovery.fail
+  version: 1
+steps:
+  - id: fail.exec
+    kind: exec
+    command: "echo fail"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-worker-recovery-fail-v1',
+			id: 'test.worker.recovery.fail',
+			sourcePath,
+			version: 1,
+		});
+		createRun(
+			db,
+			'test.worker.recovery.fail',
+			{},
+			{
+				id: 'run-worker-recovery-fail',
+				workflowHash: 'hash-worker-recovery-fail-v1',
+				workflowVersion: 1,
+			},
+		);
+
+		db.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'running',
+			     claimed_by = 'worker-dead',
+			     lease_until = ?,
+			     started_at = ?,
+			     updated_at = ?,
+			     current_step_id = 'fail.exec',
+			     current_step_index = 0,
+			     attempt = 1
+			 WHERE id = 'run-worker-recovery-fail';`,
+		).run(
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+		);
+
+		const staleStepRun = createStepRun(
+			db,
+			'run-worker-recovery-fail',
+			'fail.exec',
+			1,
+			'exec',
+		);
+		updateStepRunStatus(db, staleStepRun.id, 'running', {
+			startedAt: '2026-03-05T00:00:00.000Z',
+		});
+		updateRunCursor(
+			db,
+			'run-worker-recovery-fail',
+			'worker-dead',
+			0,
+			'fail.exec',
+		);
+
+		const executors = new ExecutorRegistry([
+			new ExecExecutor({
+				async spawn() {
+					return {
+						code: 0,
+						signal: null,
+						stderr: '',
+						stdout: 'should not run\n',
+					};
+				},
+			}),
+		]);
+
+		const result = await startWorker({
+			db,
+			executors,
+			maxRuns: 1,
+			pollIntervalMs: 5,
+			rootDir,
+			workerId: 'worker-recovered-fail',
+		});
+
+		expect(result.processedRuns).toBe(1);
+
+		const run = listRuns(db, { workflowId: 'test.worker.recovery.fail' })[0];
+		expect(run?.status).toBe('failed');
+
+		const stepRuns = listStepRuns(db, 'run-worker-recovery-fail');
+		expect(stepRuns).toHaveLength(1);
+		expect(stepRuns[0]?.status).toBe('failed');
+
+		db.close();
+	});
+
+	it('fails recovery clearly when the stale step no longer exists in the template', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.worker.recovery.mismatch
+  version: 1
+steps:
+  - id: renamed.exec
+    kind: exec
+    command: "echo renamed"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-worker-recovery-mismatch-v1',
+			id: 'test.worker.recovery.mismatch',
+			sourcePath,
+			version: 1,
+		});
+		createRun(
+			db,
+			'test.worker.recovery.mismatch',
+			{},
+			{
+				id: 'run-worker-recovery-mismatch',
+				workflowHash: 'hash-worker-recovery-mismatch-v1',
+				workflowVersion: 1,
+			},
+		);
+
+		db.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'running',
+			     claimed_by = 'worker-dead',
+			     lease_until = ?,
+			     started_at = ?,
+			     updated_at = ?,
+			     current_step_id = 'removed.exec',
+			     current_step_index = 0,
+			     attempt = 1
+			 WHERE id = 'run-worker-recovery-mismatch';`,
+		).run(
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+		);
+
+		const staleStepRun = createStepRun(
+			db,
+			'run-worker-recovery-mismatch',
+			'removed.exec',
+			1,
+			'exec',
+		);
+		updateStepRunStatus(db, staleStepRun.id, 'running', {
+			startedAt: '2026-03-05T00:00:00.000Z',
+		});
+		updateRunCursor(
+			db,
+			'run-worker-recovery-mismatch',
+			'worker-dead',
+			0,
+			'removed.exec',
+		);
+
+		const executors = new ExecutorRegistry([
+			new ExecExecutor({
+				async spawn() {
+					return {
+						code: 0,
+						signal: null,
+						stderr: '',
+						stdout: 'should not run\n',
+					};
+				},
+			}),
+		]);
+
+		await expect(
+			startWorker({
+				db,
+				executors,
+				maxRuns: 1,
+				pollIntervalMs: 5,
+				rootDir,
+				workerId: 'worker-recovered-mismatch',
+			}),
+		).rejects.toThrow(
+			'could not resolve recovery step "removed.exec" from the current workflow version',
+		);
 
 		db.close();
 	});

@@ -1,17 +1,27 @@
 import { hostname as resolveHostname } from 'node:os';
+import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type {
+	ErrorCode,
+	StepDefinition,
+	WorkflowTemplate,
+} from '@ergon/shared';
 import {
 	appendEvent,
 	claimNextRun,
 	getRun,
+	getWorkflow,
 	heartbeatWorker,
+	listStepRuns,
 	markRunFailed,
 	registerWorker,
 	renewLease,
+	updateStepRunStatus,
 	type WorkflowRunRow,
 } from '@ergon/storage';
 import type { ExecutorRegistry } from './executors/index.js';
 import { executeRun } from './runner.js';
+import { loadAndValidateTemplateFromFile } from './templating/index.js';
 
 export interface StartWorkerOptions {
 	artifactBaseDir?: string;
@@ -40,6 +50,25 @@ export interface WorkerRunResult {
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;
 const DEFAULT_LEASE_DURATION_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+
+function resolvePathWithinBase(
+	baseDir: string,
+	unsafePath: string,
+	label: string,
+): string {
+	if (path.isAbsolute(unsafePath)) {
+		throw new Error(`Unsafe ${label}: absolute paths are not allowed`);
+	}
+
+	const resolvedBase = path.resolve(baseDir);
+	const resolvedPath = path.resolve(resolvedBase, unsafePath);
+	const relative = path.relative(resolvedBase, resolvedPath);
+	if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+		throw new Error(`Unsafe ${label}: path escapes base directory`);
+	}
+
+	return resolvedPath;
+}
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => {
@@ -84,6 +113,169 @@ function describeError(error: unknown): {
 
 function createWorkerActor(workerId: string): string {
 	return `worker:${workerId}`;
+}
+
+function getFailureCodeForStep(step: StepDefinition): ErrorCode {
+	switch (step.kind) {
+		case 'agent':
+		case 'notify':
+			return 'provider_error';
+		case 'artifact':
+			return 'artifact_failed';
+		case 'condition':
+			return 'condition_failed';
+		case 'exec':
+			return 'exec_failed';
+		case 'manual':
+			return 'manual_rejected';
+		default:
+			return 'schema_invalid';
+	}
+}
+
+function canRetryRecoveredStep(step: StepDefinition, attempt: number): boolean {
+	const retry = step.retry;
+	if (!retry) {
+		return false;
+	}
+
+	const maxAttempts = Math.max(1, Math.trunc(retry.max_attempts));
+	if (attempt >= maxAttempts) {
+		return false;
+	}
+
+	const failureCode = getFailureCodeForStep(step);
+	if (!retry.on || retry.on.length === 0) {
+		return true;
+	}
+
+	return retry.on.includes(failureCode);
+}
+
+function loadTemplateForRun(
+	db: DatabaseSync,
+	run: WorkflowRunRow,
+	rootDir: string,
+): WorkflowTemplate {
+	const workflow = getWorkflow(db, run.workflow_id, run.workflow_version);
+	if (!workflow) {
+		throw new Error(
+			`Workflow "${run.workflow_id}"@${run.workflow_version} was not found`,
+		);
+	}
+
+	const templatePath = resolvePathWithinBase(
+		rootDir,
+		workflow.source_path,
+		'workflow source_path',
+	);
+
+	return loadAndValidateTemplateFromFile(templatePath).template;
+}
+
+function getStepToRecover(
+	template: WorkflowTemplate,
+	run: WorkflowRunRow,
+	stepId: string,
+): StepDefinition {
+	const step = template.steps.find((entry) => entry.id === stepId);
+	if (!step) {
+		throw new Error(
+			`Workflow run "${run.id}" could not resolve recovery step "${stepId}" from the current workflow version. The workflow may have been updated.`,
+		);
+	}
+	return step;
+}
+
+function recoverExpiredLeaseStep(
+	db: DatabaseSync,
+	run: WorkflowRunRow,
+	workerId: string,
+	rootDir: string,
+): ReturnType<typeof getRun> {
+	if (run.attempt <= 0) {
+		return null;
+	}
+
+	const runningStepRun = listStepRuns(db, run.id)
+		.filter((stepRun) => stepRun.status === 'running')
+		.at(-1);
+	if (!runningStepRun) {
+		return null;
+	}
+
+	const template = loadTemplateForRun(db, run, rootDir);
+	const step = getStepToRecover(template, run, runningStepRun.step_id);
+	const failureCode = getFailureCodeForStep(step);
+	const failureMessage = `Step "${step.id}" lost its lease while running`;
+	const failureDetail = {
+		reason: 'lease_expired',
+		recovered_by: workerId,
+		stale_attempt: runningStepRun.attempt,
+		step_id: step.id,
+	};
+
+	updateStepRunStatus(db, runningStepRun.id, 'failed', {
+		errorCode: failureCode,
+		errorDetail: failureDetail,
+		errorMessage: failureMessage,
+		finishedAt: new Date().toISOString(),
+	});
+	appendEvent(
+		db,
+		run.id,
+		'step_failed',
+		{
+			error_code: failureCode,
+			error_message: failureMessage,
+			recovered_from_expired_lease: true,
+			step_id: step.id,
+		},
+		{
+			actor: createWorkerActor(workerId),
+			stepRunId: runningStepRun.id,
+		},
+	);
+
+	if (canRetryRecoveredStep(step, runningStepRun.attempt)) {
+		appendEvent(
+			db,
+			run.id,
+			'step_retry',
+			{
+				error_code: failureCode,
+				next_attempt: runningStepRun.attempt + 1,
+				recovered_from_expired_lease: true,
+				step_id: step.id,
+			},
+			{
+				actor: createWorkerActor(workerId),
+				stepRunId: runningStepRun.id,
+			},
+		);
+		return getRun(db, run.id);
+	}
+
+	appendEvent(
+		db,
+		run.id,
+		'workflow_failed',
+		{
+			error_code: failureCode,
+			error_message: failureMessage,
+			recovered_from_expired_lease: true,
+			step_id: step.id,
+		},
+		{
+			actor: createWorkerActor(workerId),
+		},
+	);
+	markRunFailed(db, run.id, workerId, {
+		errorCode: failureCode,
+		errorDetail: failureDetail,
+		errorMessage: failureMessage,
+	});
+	return getRun(db, run.id);
 }
 
 function startHeartbeatLoop(
@@ -153,11 +345,22 @@ async function executeClaimedRun(
 	leaseRenewIntervalMs: number,
 	leaseDurationMs: number,
 ): Promise<void> {
+	const recoveredRun = recoverExpiredLeaseStep(
+		options.db,
+		run,
+		options.workerId,
+		path.resolve(options.rootDir ?? process.cwd()),
+	);
+	if (recoveredRun?.status === 'failed') {
+		return;
+	}
+
 	appendEvent(
 		options.db,
 		run.id,
 		'workflow_started',
 		{
+			recovered_from_expired_lease: run.attempt > 0,
 			worker_id: options.workerId,
 		},
 		{

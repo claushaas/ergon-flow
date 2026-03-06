@@ -193,4 +193,46 @@ describe('claim and lease primitives (B3)', () => {
 
 		db.close();
 	});
+
+	it('reclaims runs whose lease expired while still running', () => {
+		const db = openStorageDb({ dbPath: createTempDbPath() });
+
+		registerWorkflow(db, {
+			hash: 'hash-reclaim-v1',
+			id: 'code.reclaim',
+			sourcePath: 'library/workflows/code.refactor.yaml',
+			version: 1,
+		});
+
+		createRun(
+			db,
+			'code.reclaim',
+			{ n: 1 },
+			{
+				id: 'run-reclaim',
+				workflowHash: 'hash-reclaim-v1',
+				workflowVersion: 1,
+			},
+		);
+
+		const firstClaim = claimNextRun(db, 'worker-1', 30_000);
+		expect(firstClaim?.status).toBe('running');
+
+		db.prepare(
+			`UPDATE workflow_runs
+			 SET lease_until = ?, updated_at = ?
+			 WHERE id = ?;`,
+		).run(
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+			'run-reclaim',
+		);
+
+		const reclaimed = claimNextRun(db, 'worker-2', 30_000);
+		expect(reclaimed?.id).toBe('run-reclaim');
+		expect(reclaimed?.claimed_by).toBe('worker-2');
+		expect(reclaimed?.attempt).toBe(1);
+
+		db.close();
+	});
 });
