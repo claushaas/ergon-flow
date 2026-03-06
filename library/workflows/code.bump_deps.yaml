@@ -104,6 +104,9 @@ steps:
     description: "Decide what to update (based on scan output when available), and produce a safe plan for a single PR."
     provider: openrouter
     model: deepseek/deepseek-v3.2
+    output:
+      name: plan
+      type: plan
     prompt: |
       You are maintaining a production codebase. Propose a dependency update plan.
 
@@ -123,7 +126,7 @@ steps:
       {{ inputs.exclude }}
 
       Outdated/dependency scan output (may be empty if scan was skipped):
-      {{ artifacts.deps_scan }}
+      {{ artifacts.deps.scan.stdout }}
 
       Produce structured JSON with keys:
       - summary
@@ -192,6 +195,9 @@ steps:
     description: "Summarize changes, assess risk, and generate final PR title/body."
     provider: openrouter
     model: moonshotai/kimi-k2.5
+    output:
+      name: review
+      type: json
     prompt: |
       You are a senior maintainer reviewing dependency updates.
 
@@ -199,16 +205,16 @@ steps:
       {{ artifacts.plan }}
 
       Scan output (may be empty):
-      {{ artifacts.deps_scan }}
+      {{ artifacts.deps.scan.stdout }}
 
       Update execution output (may be empty if skipped):
-      {{ artifacts.deps_update }}
+      {{ artifacts.deps.update.stdout }}
 
       Install output (may be empty if skipped):
-      {{ artifacts.deps_install }}
+      {{ artifacts.deps.install.stdout }}
 
       Test output (may be empty if skipped):
-      {{ artifacts.tests_exec }}
+      {{ artifacts.tests.exec.stdout }}
 
       Produce structured JSON with keys:
       - summary

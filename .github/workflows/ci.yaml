@@ -48,6 +48,9 @@ jobs:
       - name: Smoke compiled CLI
         run: node packages/cli/dist/main.js template list
 
+      - name: Validate built-in workflows
+        run: node packages/cli/dist/main.js workflow list
+
       - name: Smoke root dev entrypoint
         run: pnpm dev template list
 

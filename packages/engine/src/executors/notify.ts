@@ -64,12 +64,13 @@ function sanitizeLoggedMessage(message: string): string {
 
 function buildRunSummaryArtifact(
 	context: ExecutionContext,
+	channel: string,
 	step: NotifyStepDefinition,
 	message: string,
 	target?: string,
 ): RunSummaryArtifact {
 	return {
-		channel: step.channel,
+		channel,
 		message,
 		run_id: context.run.runId,
 		step_id: step.id,
@@ -302,10 +303,19 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 		if (!payload.message) {
 			throw new Error(`Notify step "${step.id}" did not render a message`);
 		}
+		const channel = interpolateTemplateString(step.channel, {
+			artifacts: context.artifacts,
+			inputs: context.inputs,
+		});
 
-		switch (step.channel) {
+		switch (channel) {
 			case 'stdout': {
-				const summary = buildRunSummaryArtifact(context, step, payload.message);
+				const summary = buildRunSummaryArtifact(
+					context,
+					channel,
+					step,
+					payload.message,
+				);
 				this.log(sanitizeLoggedMessage(formatStableStdoutMessage(summary)));
 				return {
 					artifacts: [createRunSummaryArtifact(summary)],
@@ -329,7 +339,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					this.resolveHostname,
 				);
 				const result = await this.sendWebhook({
-					channel: step.channel,
+					channel,
 					message: payload.message,
 					runId: context.run.runId,
 					stepId: step.id,
@@ -338,6 +348,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 				});
 				const summary = buildRunSummaryArtifact(
 					context,
+					channel,
 					step,
 					payload.message,
 					validatedTarget.toString(),
@@ -372,6 +383,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 				});
 				const summary = buildRunSummaryArtifact(
 					context,
+					channel,
 					step,
 					payload.message,
 					target,

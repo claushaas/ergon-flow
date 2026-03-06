@@ -269,8 +269,6 @@ Model providers:
 
 - openrouter
 - ollama
-- openai
-- anthropic
 
 External agents:
 
@@ -300,7 +298,6 @@ Example using OpenClaw:
 - id: coder
   kind: agent
   provider: openclaw
-  agent: coder
 ```
 
 ---
@@ -336,16 +333,15 @@ Example:
 ```
 - id: notify
   kind: notify
-  channel: slack
+  channel: stdout
   message: "Workflow completed"
 ```
 
-Supported targets may include:
+Supported channels:
 
-- slack
-- discord
-- email
+- stdout
 - webhook
+- openclaw
 
 ---
 
@@ -427,7 +423,15 @@ Example:
 ```
 outputs:
   patch: artifacts.patch
+  branch: inputs.new_branch
 ```
+
+Runtime contract:
+
+- bare references such as `artifacts.patch` and `inputs.new_branch` are valid
+- `{{ ... }}` interpolation is also valid
+- output references may drill into object fields, for example
+  `artifacts.review.summary`
 
 ---
 
@@ -476,8 +480,15 @@ Examples:
 ```
 {{ inputs.repository }}
 {{ artifacts.plan }}
-{{ steps.analyze.output }}
+{{ artifacts.tests.exec.stdout }}
 ```
+
+Runtime contract:
+
+- supported sources are `inputs.*` and `artifacts.*`
+- references to unknown inputs or artifacts are rejected at validation time
+- artifact names may contain dots; the resolver matches the longest artifact
+  name first and then drills into nested object fields
 
 ---
 

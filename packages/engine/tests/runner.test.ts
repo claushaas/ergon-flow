@@ -201,7 +201,7 @@ workflow:
   id: test.runner
   version: 1
 outputs:
-  final_answer: "{{ artifacts.report.answer }}"
+  final_answer: artifacts.report.answer
 steps:
   - id: analyze
     kind: agent
@@ -331,7 +331,7 @@ workflow:
   id: test.resume
   version: 1
 outputs:
-  extracted: "{{ artifacts.answer_text }}"
+  extracted: artifacts.answer_text
 steps:
   - id: analyze
     kind: agent

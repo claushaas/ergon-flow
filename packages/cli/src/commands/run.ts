@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { loadAndValidateTemplateFromFile } from '@ergon/engine';
+import {
+	loadAndValidateTemplateFromFile,
+	resolveWorkflowInputs,
+} from '@ergon/engine';
 import {
 	createRun,
 	getRun,
@@ -99,7 +102,10 @@ export function scheduleRun(
 		return createRun(
 			db,
 			workflow.id,
-			parseInputs(commandOptions.inputs, config.rootDir),
+			resolveWorkflowInputs(
+				template,
+				parseInputs(commandOptions.inputs, config.rootDir),
+			),
 			{
 				workflowHash: workflow.hash,
 				workflowVersion: workflow.version,

@@ -11,6 +11,8 @@ import {
 	loadTemplatesFromWorkspace,
 	normalizeTemplate,
 	renderTemplateStepRequests,
+	resolveTemplateReference,
+	resolveWorkflowInputs,
 	validateTemplate,
 	validateTemplateInterpolation,
 } from '../src/templating/index.js';
@@ -86,6 +88,14 @@ describe('template loader (C1)', () => {
 		const templates = loadTemplatesFromWorkspace(root);
 		expect(templates).toHaveLength(1);
 		expect(templates[0]?.template.workflow.id).toBe('workflow.workspace');
+	});
+
+	it('loads the built-in workflow library as valid templates', () => {
+		const templates = loadTemplatesFromWorkspace(process.cwd());
+		expect(templates.length).toBeGreaterThan(0);
+		for (const loaded of templates) {
+			expect(validateTemplate(loaded.template).valid).toBe(true);
+		}
 	});
 
 	it('normalizes missing sections into stable defaults', () => {
@@ -295,6 +305,58 @@ describe('template validation (C2)', () => {
 		).toBe(true);
 	});
 
+	it('rejects semantic references to unknown inputs and artifacts', () => {
+		const template = normalizeTemplate({
+			outputs: {
+				report: 'artifacts.review',
+			},
+			steps: [
+				{
+					id: 'plan',
+					kind: 'agent',
+					prompt: 'Task {{ inputs.missing }} / Review {{ artifacts.review }}',
+					provider: 'openrouter',
+				},
+			],
+			workflow: { id: 'workflow.semantic.invalid', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('unknown input reference'),
+			),
+		).toBe(true);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('unknown artifact reference'),
+			),
+		).toBe(true);
+	});
+
+	it('rejects providers without a runtime client contract', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{
+					id: 'review',
+					kind: 'agent',
+					prompt: 'Review this',
+					provider: 'openai',
+				},
+			],
+			workflow: { id: 'workflow.provider.invalid', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) =>
+				error.message.includes('provider "openai" is not supported'),
+			),
+		).toBe(true);
+	});
+
 	it('throws on invalid template via assert and file loader helper', () => {
 		const invalidTemplate = normalizeTemplate({
 			steps: [{ id: 'agent.bad', kind: 'agent' }],
@@ -414,6 +476,17 @@ describe('template interpolation (C3)', () => {
 		).toThrow('unknown interpolation reference');
 	});
 
+	it('resolves artifact references whose names contain dots', () => {
+		const value = resolveTemplateReference('artifacts.tests.exec.stdout', {
+			artifacts: {
+				'tests.exec.stdout': 'ok',
+			},
+			inputs: {},
+		});
+
+		expect(value).toBe('ok');
+	});
+
 	it('reports interpolation errors through validation helper', () => {
 		const template = normalizeTemplate({
 			steps: [
@@ -442,5 +515,53 @@ describe('template interpolation (C3)', () => {
 				error.message.includes('unsupported interpolation source'),
 			),
 		).toBe(true);
+	});
+
+	it('materializes workflow input defaults and rejects invalid run inputs', () => {
+		const template = normalizeTemplate({
+			inputs: {
+				message: { type: 'string' },
+				notify: {
+					default: {
+						channel: 'stdout',
+						target: '',
+					},
+					type: 'object',
+				},
+				retries: {
+					default: 2,
+					type: 'number',
+				},
+			},
+			steps: [{ command: 'echo ok', id: 'echo', kind: 'exec' }],
+			workflow: { id: 'workflow.inputs', version: 1 },
+		});
+
+		expect(
+			resolveWorkflowInputs(template, {
+				message: 'hello',
+			}),
+		).toEqual({
+			message: 'hello',
+			notify: {
+				channel: 'stdout',
+				target: '',
+			},
+			retries: 2,
+		});
+		expect(() =>
+			resolveWorkflowInputs(template, {
+				message: 'hello',
+				unexpected: true,
+			}),
+		).toThrow('Unknown workflow input "unexpected"');
+		expect(() =>
+			resolveWorkflowInputs(template, {
+				message: 42,
+			}),
+		).toThrow('Workflow input "message" must be of type "string"');
+		expect(() => resolveWorkflowInputs(template, {})).toThrow(
+			'Missing required workflow input "message"',
+		);
 	});
 });

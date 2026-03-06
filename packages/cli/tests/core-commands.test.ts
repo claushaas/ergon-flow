@@ -113,6 +113,9 @@ steps:
 workflow:
   id: code.run
   version: 1
+inputs:
+  message:
+    type: string
 steps:
   - id: echo
     kind: exec
@@ -135,6 +138,88 @@ steps:
 		expect(status.stepRuns).toEqual([]);
 	});
 
+	it('materializes workflow input defaults when scheduling a run', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		writeWorkflow(
+			rootDir,
+			'code.defaults.yaml',
+			`
+workflow:
+  id: code.defaults
+  version: 1
+inputs:
+  message:
+    type: string
+  notify:
+    type: object
+    default:
+      channel: stdout
+      target: ""
+steps:
+  - id: echo
+    kind: exec
+    command: "echo {{ inputs.message }}"
+`,
+		);
+
+		const run = scheduleRun('code.defaults', {
+			dbPath,
+			inputs: '{"message":"hello"}',
+			rootDir,
+		});
+
+		expect(JSON.parse(run.inputs_json)).toEqual({
+			message: 'hello',
+			notify: {
+				channel: 'stdout',
+				target: '',
+			},
+		});
+	});
+
+	it('rejects unknown, missing and invalid workflow inputs when scheduling', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		writeWorkflow(
+			rootDir,
+			'code.inputs.yaml',
+			`
+workflow:
+  id: code.inputs
+  version: 1
+inputs:
+  message:
+    type: string
+steps:
+  - id: echo
+    kind: exec
+    command: "echo {{ inputs.message }}"
+`,
+		);
+
+		expect(() =>
+			scheduleRun('code.inputs', {
+				dbPath,
+				inputs: '{"unexpected":true}',
+				rootDir,
+			}),
+		).toThrow('Unknown workflow input "unexpected"');
+		expect(() =>
+			scheduleRun('code.inputs', {
+				dbPath,
+				inputs: '{"message":42}',
+				rootDir,
+			}),
+		).toThrow('Workflow input "message" must be of type "string"');
+		expect(() =>
+			scheduleRun('code.inputs', {
+				dbPath,
+				rootDir,
+			}),
+		).toThrow('Missing required workflow input "message"');
+	});
+
 	it('accepts --inputs as a JSON file path', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
@@ -145,6 +230,9 @@ steps:
 workflow:
   id: code.file-input
   version: 1
+inputs:
+  message:
+    type: string
 steps:
   - id: echo
     kind: exec
@@ -187,6 +275,9 @@ steps:
 workflow:
   id: code.secure-input
   version: 1
+inputs:
+  message:
+    type: string
 steps:
   - id: echo
     kind: exec

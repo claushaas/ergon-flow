@@ -69,6 +69,9 @@ steps:
     name: "Analyze repository"
     provider: openrouter
     model: deepseek/deepseek-v3.2
+    output:
+      name: analysis
+      type: analysis
     prompt: |
       You are an expert software architect.
 
@@ -97,6 +100,9 @@ steps:
     name: "Design implementation"
     provider: openrouter
     model: moonshotai/kimi-k2.5
+    output:
+      name: design
+      type: plan
     prompt: |
       You are designing a feature implementation.
 
@@ -110,7 +116,7 @@ steps:
       {{ inputs.constraints }}
 
       Repository analysis:
-      {{ artifacts.analyze }}
+      {{ artifacts.analysis }}
 
       Produce structured JSON with:
       - design_summary
@@ -123,6 +129,9 @@ steps:
     kind: agent
     name: "Generate code"
     provider: codex
+    output:
+      name: implement
+      type: text
     prompt: |
       You are a coding agent generating a patch.
 
@@ -172,6 +181,9 @@ steps:
     kind: agent
     name: "Review generated implementation"
     provider: claude-code
+    output:
+      name: review
+      type: json
     prompt: |
       You are a senior code reviewer.
 
@@ -188,7 +200,7 @@ steps:
       {{ artifacts.implement }}
 
       Test results:
-      {{ artifacts.tests_exec }}
+      {{ artifacts.tests.exec.stdout }}
 
       Produce structured JSON:
 
