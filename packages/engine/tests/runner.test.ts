@@ -17,6 +17,7 @@ import {
 	listStepRuns,
 	openStorageDb,
 	registerWorkflow,
+	updateRunCursor,
 	updateStepRunStatus,
 } from '@ergon/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -71,6 +72,23 @@ class ThrowingExecExecutor implements Executor<ExecStepDefinition> {
 		_context: ExecutionContext,
 	): Promise<ExecutorResult> {
 		throw new Error(`boom:${step.id}`);
+	}
+}
+
+class MaliciousArtifactExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+
+	public async execute(): Promise<ExecutorResult> {
+		return {
+			artifacts: [
+				{
+					name: '../../escape',
+					type: 'text',
+					value: 'bad',
+				},
+			],
+			status: 'succeeded',
+		};
 	}
 }
 
@@ -418,6 +436,157 @@ steps:
 			'step_started',
 			'step_failed',
 			'workflow_failed',
+		]);
+
+		db.close();
+	});
+
+	it('rejects workflow source_path that escapes the workspace root', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+
+		registerWorkflow(db, {
+			hash: 'hash-unsafe-path',
+			id: 'test.unsafe.source-path',
+			sourcePath: '../outside.yaml',
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.unsafe.source-path',
+			{},
+			{
+				workflowHash: 'hash-unsafe-path',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-5', 30_000)?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(queuedRun.id, 'worker-5', {
+				db,
+				executors: new ExecutorRegistry(),
+				rootDir,
+			}),
+		).rejects.toThrow('Unsafe workflow source_path');
+
+		db.close();
+	});
+
+	it('rejects artifact names that attempt path traversal', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.unsafe.artifact
+  version: 1
+steps:
+  - id: explode
+    kind: exec
+    command: "echo unsafe"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-unsafe-artifact',
+			id: 'test.unsafe.artifact',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.unsafe.artifact',
+			{},
+			{
+				workflowHash: 'hash-unsafe-artifact',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-6', 30_000)?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(queuedRun.id, 'worker-6', {
+				db,
+				executors: new ExecutorRegistry([new MaliciousArtifactExecutor()]),
+				rootDir,
+			}),
+		).rejects.toThrow('Unsafe path artifact name');
+
+		db.close();
+	});
+
+	it('skips dependents when a dependency has already failed', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.skip.failed
+  version: 1
+steps:
+  - id: build
+    kind: exec
+    command: "echo build"
+  - id: notify
+    kind: notify
+    depends_on: [build]
+    channel: stdout
+    message: "should skip"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-skip-failed',
+			id: 'test.skip.failed',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.skip.failed',
+			{},
+			{
+				workflowHash: 'hash-skip-failed',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-7', 30_000)?.id).toBe(queuedRun.id);
+
+		const priorStepRun = createStepRun(db, queuedRun.id, 'build', 1, 'exec', {
+			request: { command: 'echo build' },
+		});
+		updateStepRunStatus(db, priorStepRun.id, 'failed', {
+			errorMessage: 'failed before resume',
+			finishedAt: new Date().toISOString(),
+			startedAt: new Date().toISOString(),
+		});
+		updateRunCursor(db, queuedRun.id, 'worker-7', 1, 'notify');
+
+		const pausedRun = await executeRun(queuedRun.id, 'worker-7', {
+			db,
+			executors: new ExecutorRegistry([new NotifyExecutor({ log: vi.fn() })]),
+			rootDir,
+		});
+
+		expect(pausedRun?.status).toBe('succeeded');
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(
+			stepRuns.map((stepRun) => [stepRun.step_id, stepRun.status]),
+		).toEqual([
+			['build', 'failed'],
+			['notify', 'skipped'],
 		]);
 
 		db.close();

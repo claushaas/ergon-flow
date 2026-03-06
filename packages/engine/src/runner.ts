@@ -11,6 +11,7 @@ import {
 	appendEvent,
 	artifactPath,
 	artifactsDir,
+	assertSafeSegment,
 	createStepRun,
 	getRun,
 	getWorkflow,
@@ -51,6 +52,14 @@ interface ResolvedRunState {
 	artifacts: Record<string, unknown>;
 	completedSteps: Map<string, { output: unknown; status: StepRunStatus }>;
 	nextStepIndex: number;
+}
+
+interface SkippedStepOptions {
+	output: Record<string, unknown>;
+	runId: string;
+	step: StepDefinition;
+	stepRun: ReturnType<typeof createStepRun>;
+	stepRuns: ReturnType<typeof listStepRuns>;
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -116,9 +125,26 @@ function getArtifactFilePath(
 	rootDir: string,
 	artifactRow: ReturnType<typeof listArtifacts>[number],
 ): string {
-	return path.isAbsolute(artifactRow.path)
-		? artifactRow.path
-		: path.resolve(rootDir, artifactRow.path);
+	return resolvePathWithinBase(rootDir, artifactRow.path, 'artifact path');
+}
+
+function resolvePathWithinBase(
+	baseDir: string,
+	unsafePath: string,
+	label: string,
+): string {
+	if (path.isAbsolute(unsafePath)) {
+		throw new Error(`Unsafe ${label}: absolute paths are not allowed`);
+	}
+
+	const resolvedBase = path.resolve(baseDir);
+	const resolvedPath = path.resolve(resolvedBase, unsafePath);
+	const relative = path.relative(resolvedBase, resolvedPath);
+	if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+		throw new Error(`Unsafe ${label}: path escapes base directory`);
+	}
+
+	return resolvedPath;
 }
 
 function restoreArtifacts(
@@ -275,7 +301,7 @@ function shouldSkipStep(
 		if (!state) {
 			return false;
 		}
-		if (state.status === 'skipped') {
+		if (state.status === 'failed' || state.status === 'skipped') {
 			return true;
 		}
 		if (
@@ -301,6 +327,7 @@ function isConditionOutput(value: unknown): value is { passed: boolean } {
 }
 
 function getArtifactFileName(artifact: ExecutorArtifact): string {
+	assertSafeSegment(artifact.name, 'artifact name');
 	switch (artifact.type) {
 		case 'text':
 			return `${artifact.name}.txt`;
@@ -369,6 +396,35 @@ function appendStepEvents(
 			stepRunId,
 		});
 	}
+}
+
+function handleSkippedStep(
+	db: DatabaseSync,
+	workerId: string,
+	options: SkippedStepOptions,
+): void {
+	updateStepRunStatus(db, options.stepRun.id, 'skipped', {
+		finishedAt: new Date().toISOString(),
+		output: options.output,
+	});
+	appendEvent(
+		db,
+		options.runId,
+		'step_skipped',
+		{
+			step_id: options.step.id,
+			...options.output,
+		},
+		{
+			actor: `worker:${workerId}`,
+			stepRunId: options.stepRun.id,
+		},
+	);
+	options.stepRuns.push({
+		...options.stepRun,
+		output_json: JSON.stringify(options.output),
+		status: 'skipped',
+	});
 }
 
 function resolveReferenceValue(
@@ -505,7 +561,11 @@ export async function executeRun(
 		);
 	}
 
-	const templatePath = path.resolve(rootDir, workflow.source_path);
+	const templatePath = resolvePathWithinBase(
+		rootDir,
+		workflow.source_path,
+		'workflow source_path',
+	);
 	const { template } = loadAndValidateTemplateFromFile(templatePath);
 	const inputs = parseJson<Record<string, unknown>>(run.inputs_json, {});
 	const state = resolveRunState(artifactBaseDir, template, run, options.db);
@@ -556,26 +616,16 @@ export async function executeRun(
 				reason: 'dependency_not_satisfied',
 				skipped_by: step.depends_on ?? [],
 			};
-			updateStepRunStatus(options.db, stepRun.id, 'skipped', {
-				finishedAt: new Date().toISOString(),
-				output: skippedOutput,
-			});
-			appendEvent(
-				options.db,
-				run.id,
-				'step_skipped',
-				{
-					step_id: step.id,
-					...skippedOutput,
-				},
-				{
-					actor: `worker:${workerId}`,
-					stepRunId: stepRun.id,
-				},
-			);
 			state.completedSteps.set(step.id, {
 				output: skippedOutput,
 				status: 'skipped',
+			});
+			handleSkippedStep(options.db, workerId, {
+				output: skippedOutput,
+				runId: run.id,
+				step,
+				stepRun,
+				stepRuns,
 			});
 			updateRunCursor(
 				options.db,
@@ -584,11 +634,6 @@ export async function executeRun(
 				stepIndex + 1,
 				template.steps[stepIndex + 1]?.id ?? null,
 			);
-			stepRuns.push({
-				...stepRun,
-				output_json: JSON.stringify(skippedOutput),
-				status: 'skipped',
-			});
 			continue;
 		}
 
@@ -645,25 +690,17 @@ export async function executeRun(
 		}
 
 		if (result.status === 'skipped') {
-			updateStepRunStatus(options.db, stepRun.id, 'skipped', {
-				finishedAt: new Date().toISOString(),
-				output: result.outputs,
-			});
-			appendEvent(
-				options.db,
-				run.id,
-				'step_skipped',
-				{
-					step_id: step.id,
-				},
-				{
-					actor: `worker:${workerId}`,
-					stepRunId: stepRun.id,
-				},
-			);
+			const skippedOutput = result.outputs ?? {};
 			state.completedSteps.set(step.id, {
-				output: result.outputs,
+				output: skippedOutput,
 				status: 'skipped',
+			});
+			handleSkippedStep(options.db, workerId, {
+				output: skippedOutput,
+				runId: run.id,
+				step,
+				stepRun,
+				stepRuns,
 			});
 			updateRunCursor(
 				options.db,
@@ -672,11 +709,6 @@ export async function executeRun(
 				stepIndex + 1,
 				template.steps[stepIndex + 1]?.id ?? null,
 			);
-			stepRuns.push({
-				...stepRun,
-				output_json: JSON.stringify(result.outputs ?? null),
-				status: 'skipped',
-			});
 			continue;
 		}
 
