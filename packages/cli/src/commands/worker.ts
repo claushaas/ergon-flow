@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createDefaultExecutorRegistry, startWorker } from '@ergon/engine';
-import { openStorageDb } from '@ergon/storage';
 import { loadCliConfig } from '../config/index.js';
+import { openCliDb } from '../db.js';
 
 export interface WorkerCommandOptions {
 	artifactBaseDir?: string;
@@ -123,9 +123,7 @@ export async function runWorkerCommand(
 	commandOptions: WorkerCommandOptions = {},
 ): Promise<void> {
 	const config = loadCliConfig(commandOptions.rootDir);
-	const db = openStorageDb({
-		dbPath: commandOptions.dbPath ?? config.dbPath,
-	});
+	const db = openCliDb(commandOptions.dbPath ?? config.dbPath);
 
 	try {
 		const workerId = commandOptions.workerId ?? `worker-${randomUUID()}`;
