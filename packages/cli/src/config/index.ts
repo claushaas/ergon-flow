@@ -11,52 +11,66 @@ function readStringEnv(name: string): string | undefined {
 	return value ? value : undefined;
 }
 
+function splitArgs(value: string | undefined): string[] | undefined {
+	return value?.split(/\s+/).filter((entry) => entry.length > 0);
+}
+
 export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
-	const rootDir = path.resolve(readStringEnv('ERGON_ROOT_DIR') ?? cwd);
+	const ergonRootDir = readStringEnv('ERGON_ROOT_DIR');
+	const ergonDbPath = readStringEnv('ERGON_DB_PATH');
+	const claudeCodeCommand = readStringEnv('CLAUDE_CODE_COMMAND');
+	const claudeCodeArgs = readStringEnv('CLAUDE_CODE_ARGS');
+	const codexCommand = readStringEnv('CODEX_COMMAND');
+	const codexArgs = readStringEnv('CODEX_ARGS');
+	const ollamaBaseUrl = readStringEnv('OLLAMA_BASE_URL');
+	const ollamaModel = readStringEnv('OLLAMA_MODEL');
+	const openClawCommand = readStringEnv('OPENCLAW_COMMAND');
+	const openClawArgs = readStringEnv('OPENCLAW_ARGS');
 	const openRouterApiKey = readStringEnv('OPENROUTER_API_KEY');
+	const openRouterAppName = readStringEnv('OPENROUTER_APP_NAME');
+	const openRouterBaseUrl = readStringEnv('OPENROUTER_BASE_URL');
+	const openRouterModel = readStringEnv('OPENROUTER_MODEL');
+	const openRouterSiteUrl = readStringEnv('OPENROUTER_SITE_URL');
+	const rootDir = path.resolve(ergonRootDir ?? cwd);
 
 	return {
-		dbPath: path.resolve(
-			rootDir,
-			readStringEnv('ERGON_DB_PATH') ?? '.ergon/storage/ergon.db',
-		),
+		dbPath: path.resolve(rootDir, ergonDbPath ?? '.ergon/storage/ergon.db'),
 		providerConfigs: {
 			'claude-code':
-				readStringEnv('CLAUDE_CODE_COMMAND') ||
-				readStringEnv('CLAUDE_CODE_ARGS')
+				claudeCodeCommand || claudeCodeArgs
 					? {
-							args: readStringEnv('CLAUDE_CODE_ARGS')?.split(' ') ?? undefined,
-							command: readStringEnv('CLAUDE_CODE_COMMAND'),
+							args: splitArgs(claudeCodeArgs),
+							command: claudeCodeCommand,
 						}
 					: undefined,
 			codex:
-				readStringEnv('CODEX_COMMAND') || readStringEnv('CODEX_ARGS')
+				codexCommand || codexArgs
 					? {
-							args: readStringEnv('CODEX_ARGS')?.split(' ') ?? undefined,
-							command: readStringEnv('CODEX_COMMAND'),
+							args: splitArgs(codexArgs),
+							command: codexCommand,
 						}
 					: undefined,
 			ollama:
-				readStringEnv('OLLAMA_BASE_URL') || readStringEnv('OLLAMA_MODEL')
+				ollamaBaseUrl || ollamaModel
 					? {
-							baseUrl: readStringEnv('OLLAMA_BASE_URL'),
-							defaultModel: readStringEnv('OLLAMA_MODEL'),
+							baseUrl: ollamaBaseUrl,
+							defaultModel: ollamaModel,
 						}
 					: undefined,
 			openclaw:
-				readStringEnv('OPENCLAW_COMMAND') || readStringEnv('OPENCLAW_ARGS')
+				openClawCommand || openClawArgs
 					? {
-							args: readStringEnv('OPENCLAW_ARGS')?.split(' ') ?? undefined,
-							command: readStringEnv('OPENCLAW_COMMAND'),
+							args: splitArgs(openClawArgs),
+							command: openClawCommand,
 						}
 					: undefined,
 			openrouter: openRouterApiKey
 				? {
 						apiKey: openRouterApiKey,
-						appName: readStringEnv('OPENROUTER_APP_NAME'),
-						baseUrl: readStringEnv('OPENROUTER_BASE_URL'),
-						defaultModel: readStringEnv('OPENROUTER_MODEL'),
-						siteUrl: readStringEnv('OPENROUTER_SITE_URL'),
+						appName: openRouterAppName,
+						baseUrl: openRouterBaseUrl,
+						defaultModel: openRouterModel,
+						siteUrl: openRouterSiteUrl,
 					}
 				: undefined,
 		},

@@ -30,67 +30,85 @@ function parseNumericFlag(
 	return parsed;
 }
 
+function readFlagValue(
+	argv: string[],
+	index: number,
+	flagName: string,
+): string {
+	const value = argv[index + 1];
+	if (value === undefined || value.startsWith('--')) {
+		throw new Error(`Missing value for ${flagName}`);
+	}
+	return value;
+}
+
 export function parseWorkerCommandArgs(argv: string[]): WorkerCommandOptions {
 	const options: WorkerCommandOptions = {};
 
 	for (let index = 0; index < argv.length; index += 1) {
 		const token = argv[index];
-		const nextValue = argv[index + 1];
 
 		switch (token) {
 			case '--artifact-base-dir':
-				options.artifactBaseDir = nextValue;
+				options.artifactBaseDir = readFlagValue(
+					argv,
+					index,
+					'--artifact-base-dir',
+				);
 				index += 1;
 				break;
 			case '--db':
-				options.dbPath = nextValue;
+				options.dbPath = readFlagValue(argv, index, '--db');
 				index += 1;
 				break;
 			case '--heartbeat-interval-ms':
 				options.heartbeatIntervalMs = parseNumericFlag(
-					nextValue,
+					readFlagValue(argv, index, '--heartbeat-interval-ms'),
 					'--heartbeat-interval-ms',
 				);
 				index += 1;
 				break;
 			case '--lease-duration-ms':
 				options.leaseDurationMs = parseNumericFlag(
-					nextValue,
+					readFlagValue(argv, index, '--lease-duration-ms'),
 					'--lease-duration-ms',
 				);
 				index += 1;
 				break;
 			case '--lease-renew-interval-ms':
 				options.leaseRenewIntervalMs = parseNumericFlag(
-					nextValue,
+					readFlagValue(argv, index, '--lease-renew-interval-ms'),
 					'--lease-renew-interval-ms',
 				);
 				index += 1;
 				break;
 			case '--max-poll-interval-ms':
 				options.maxPollIntervalMs = parseNumericFlag(
-					nextValue,
+					readFlagValue(argv, index, '--max-poll-interval-ms'),
 					'--max-poll-interval-ms',
 				);
 				index += 1;
 				break;
 			case '--max-runs':
-				options.maxRuns = parseNumericFlag(nextValue, '--max-runs');
+				options.maxRuns = parseNumericFlag(
+					readFlagValue(argv, index, '--max-runs'),
+					'--max-runs',
+				);
 				index += 1;
 				break;
 			case '--poll-interval-ms':
 				options.pollIntervalMs = parseNumericFlag(
-					nextValue,
+					readFlagValue(argv, index, '--poll-interval-ms'),
 					'--poll-interval-ms',
 				);
 				index += 1;
 				break;
 			case '--root-dir':
-				options.rootDir = nextValue;
+				options.rootDir = readFlagValue(argv, index, '--root-dir');
 				index += 1;
 				break;
 			case '--worker-id':
-				options.workerId = nextValue;
+				options.workerId = readFlagValue(argv, index, '--worker-id');
 				index += 1;
 				break;
 			default:
