@@ -15,6 +15,7 @@ import {
 	insertArtifact,
 	listArtifacts,
 	listStepRuns,
+	markRunCanceled,
 	openStorageDb,
 	registerWorkflow,
 	updateRunCursor,
@@ -134,6 +135,28 @@ class CircularFailedStatusExecExecutor implements Executor<ExecStepDefinition> {
 		return {
 			outputs,
 			status: 'failed',
+		};
+	}
+}
+
+class CancelingExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+
+	public constructor(
+		private readonly db: ReturnType<typeof openStorageDb>,
+		private readonly runId: string,
+		private readonly workerId: string,
+	) {}
+
+	public async execute(): Promise<ExecutorResult> {
+		const canceledRun = markRunCanceled(this.db, this.runId, this.workerId);
+		expect(canceledRun?.status).toBe('canceled');
+
+		return {
+			outputs: {
+				canceled: true,
+			},
+			status: 'succeeded',
 		};
 	}
 }
@@ -898,6 +921,152 @@ steps:
 		const stepRuns = listStepRuns(db, queuedRun.id);
 		expect(stepRuns).toHaveLength(2);
 		expect(stepRuns[0]?.output_json).toContain('[Circular]');
+
+		db.close();
+	});
+
+	it('aborts cleanly before the next step when the run is canceled', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.cancel.before-next-step
+  version: 1
+steps:
+  - id: cancel-me
+    kind: exec
+    command: "echo first"
+  - id: notify
+    kind: notify
+    channel: stdout
+    message: "should never run"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-cancel-before-next-step',
+			id: 'test.cancel.before-next-step',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.cancel.before-next-step',
+			{},
+			{
+				workflowHash: 'hash-cancel-before-next-step',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-12', 30_000)?.id).toBe(queuedRun.id);
+
+		const log = vi.fn();
+		const canceledRun = await executeRun(queuedRun.id, 'worker-12', {
+			db,
+			executors: new ExecutorRegistry([
+				new CancelingExecExecutor(db, queuedRun.id, 'worker-12'),
+				new NotifyExecutor({ log }),
+			]),
+			rootDir,
+		});
+
+		expect(canceledRun?.status).toBe('canceled');
+		expect(canceledRun?.current_step_id).toBe('cancel-me');
+		expect(canceledRun?.current_step_index).toBe(0);
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(
+			stepRuns.map((stepRun) => [stepRun.step_id, stepRun.status]),
+		).toEqual([['cancel-me', 'succeeded']]);
+		expect(log).not.toHaveBeenCalled();
+
+		const eventRows = db
+			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
+			.all(queuedRun.id) as Array<{ type: string }>;
+		expect(eventRows.map((event) => event.type)).toEqual([
+			'step_started',
+			'step_succeeded',
+			'workflow_canceled',
+		]);
+
+		db.close();
+	});
+
+	it('does not append duplicate workflow_canceled events', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.cancel.single-event
+  version: 1
+steps:
+  - id: cancel-me
+    kind: exec
+    command: "echo first"
+  - id: notify
+    kind: notify
+    channel: stdout
+    message: "should never run"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-cancel-single-event',
+			id: 'test.cancel.single-event',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.cancel.single-event',
+			{},
+			{
+				workflowHash: 'hash-cancel-single-event',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-13', 30_000)?.id).toBe(queuedRun.id);
+
+		appendEvent(
+			db,
+			queuedRun.id,
+			'workflow_canceled',
+			{
+				reason: 'external_cancel',
+			},
+			{
+				actor: 'worker:external',
+			},
+		);
+
+		await executeRun(queuedRun.id, 'worker-13', {
+			db,
+			executors: new ExecutorRegistry([
+				new CancelingExecExecutor(db, queuedRun.id, 'worker-13'),
+				new NotifyExecutor({ log: vi.fn() }),
+			]),
+			rootDir,
+		});
+
+		const eventRows = db
+			.prepare(
+				"SELECT type, payload_json FROM events WHERE run_id = ? AND type = 'workflow_canceled' ORDER BY seq ASC;",
+			)
+			.all(queuedRun.id) as Array<{ payload_json: string; type: string }>;
+		expect(eventRows).toHaveLength(1);
+		expect(JSON.parse(eventRows[0]?.payload_json ?? '{}')).toEqual({
+			reason: 'external_cancel',
+		});
 
 		db.close();
 	});

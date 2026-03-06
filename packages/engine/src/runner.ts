@@ -785,6 +785,48 @@ function markStepFailed(
 	throw error instanceof Error ? error : new Error(failure.message);
 }
 
+function hasWorkflowCanceledEvent(db: DatabaseSync, runId: string): boolean {
+	const existingEvent = db
+		.prepare(
+			"SELECT 1 FROM events WHERE run_id = ? AND type = 'workflow_canceled' LIMIT 1;",
+		)
+		.get(runId);
+
+	return Boolean(existingEvent);
+}
+
+function abortIfCanceled(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	reason: 'canceled_before_next_step' | 'canceled_during_step',
+): ReturnType<typeof getRun> {
+	const currentRun = getRun(db, runId);
+	if (!currentRun) {
+		throw new Error(`Workflow run "${runId}" was not found`);
+	}
+
+	if (currentRun.status !== 'canceled') {
+		return null;
+	}
+
+	if (!hasWorkflowCanceledEvent(db, runId)) {
+		appendEvent(
+			db,
+			runId,
+			'workflow_canceled',
+			{
+				reason,
+			},
+			{
+				actor: `worker:${workerId}`,
+			},
+		);
+	}
+
+	return currentRun;
+}
+
 export async function executeRun(
 	runId: string,
 	workerId: string,
@@ -830,6 +872,16 @@ export async function executeRun(
 		stepIndex < template.steps.length;
 		stepIndex += 1
 	) {
+		const canceledRun = abortIfCanceled(
+			options.db,
+			run.id,
+			workerId,
+			'canceled_before_next_step',
+		);
+		if (canceledRun) {
+			return canceledRun;
+		}
+
 		const step = template.steps[stepIndex];
 		if (!step) {
 			break;
@@ -963,6 +1015,16 @@ export async function executeRun(
 			}
 
 			if (result.status === 'waiting_manual') {
+				const canceledRun = abortIfCanceled(
+					options.db,
+					run.id,
+					workerId,
+					'canceled_during_step',
+				);
+				if (canceledRun) {
+					return canceledRun;
+				}
+
 				updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
 					finishedAt: new Date().toISOString(),
 					output: normalizeForStorage(result.outputs),
@@ -984,6 +1046,15 @@ export async function executeRun(
 					stepRun,
 					stepRuns,
 				});
+				const canceledRun = abortIfCanceled(
+					options.db,
+					run.id,
+					workerId,
+					'canceled_during_step',
+				);
+				if (canceledRun) {
+					return canceledRun;
+				}
 				updateRunCursor(
 					options.db,
 					run.id,
@@ -1023,6 +1094,15 @@ export async function executeRun(
 				output: result.outputs,
 				status: 'succeeded',
 			});
+			const canceledRun = abortIfCanceled(
+				options.db,
+				run.id,
+				workerId,
+				'canceled_during_step',
+			);
+			if (canceledRun) {
+				return canceledRun;
+			}
 			updateRunCursor(
 				options.db,
 				run.id,

@@ -276,7 +276,7 @@ Deliverable: engine can execute a workflow with `agent + exec + condition + manu
 
 ---
 
-## Scope F — Workflow Engine (sequential runner)
+## Scope F — Workflow Engine (sequential runner) - ✅
 
 ### Phase F1 — Engine core loop - ✅
 
@@ -300,7 +300,7 @@ Deliverable: engine can execute a workflow with `agent + exec + condition + manu
 - Failure categorization
 - Stop on terminal errors
 
-### Phase F3 — Cancellation check
+### Phase F3 — Cancellation check - ✅
 
 - Before each step, check run status
 - Abort cleanly if `canceled`
