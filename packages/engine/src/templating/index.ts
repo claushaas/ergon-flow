@@ -87,7 +87,7 @@ function cloneValue<T>(value: T): T {
 	if (value === undefined) {
 		return value;
 	}
-	return JSON.parse(JSON.stringify(value)) as T;
+	return structuredClone(value);
 }
 
 function normalizeWorkflow(rawWorkflow: unknown): WorkflowMetadata {
@@ -971,9 +971,6 @@ function getArtifactReferenceValue(
 			continue;
 		}
 		const artifactValue = artifacts[artifactName];
-		if (index === pathParts.length) {
-			return artifactValue;
-		}
 		if (
 			!artifactValue ||
 			typeof artifactValue !== 'object' ||
