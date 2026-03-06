@@ -1,5 +1,6 @@
 {
 	"dependencies": {
+		"@ergon/clients": "workspace:*",
 		"@ergon/executors": "workspace:*",
 		"@ergon/shared": "workspace:*",
 		"@ergon/storage": "workspace:*",

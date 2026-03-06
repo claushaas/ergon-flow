@@ -311,7 +311,7 @@ Deliverable: a single run is fully replayable from DB state.
 
 ## Scope G — Worker Runtime
 
-### Phase G1 — Worker loop
+### Phase G1 — Worker loop - ✅
 
 - `ergon worker start`
 - Register/update worker heartbeat
@@ -320,7 +320,7 @@ Deliverable: a single run is fully replayable from DB state.
 - Execute run through engine
 - Renew lease periodically during long runs
 
-### Phase G2 — Crash recovery semantics
+### Phase G2 — Crash recovery semantics - ✅
 
 - Reclaim runs with expired lease
 - If a step_run is `running` under expired lease:
