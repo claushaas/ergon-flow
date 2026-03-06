@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -58,6 +59,12 @@ function writeTemplate(rootDir: string, content: string): string {
 	const templatePath = path.join(templateDir, 'workflow.yaml');
 	writeFileSync(templatePath, content, 'utf8');
 	return path.relative(rootDir, templatePath);
+}
+
+function hashTemplate(rootDir: string, sourcePath: string): string {
+	return createHash('sha256')
+		.update(readFileSync(path.join(rootDir, sourcePath)))
+		.digest('hex');
 }
 
 function createStubClient(provider: Provider, text: string): ExecutionClient {
@@ -151,12 +158,18 @@ class CancelingExecExecutor implements Executor<ExecStepDefinition> {
 
 	public constructor(
 		private readonly db: ReturnType<typeof openStorageDb>,
+		private readonly claimEpoch: number,
 		private readonly runId: string,
 		private readonly workerId: string,
 	) {}
 
 	public async execute(): Promise<ExecutorResult> {
-		const canceledRun = markRunCanceled(this.db, this.runId, this.workerId);
+		const canceledRun = markRunCanceled(
+			this.db,
+			this.runId,
+			this.workerId,
+			this.claimEpoch,
+		);
 		expect(canceledRun?.status).toBe('canceled');
 
 		return {
@@ -204,9 +217,10 @@ steps:
     message: "done {{ artifacts.report.answer }}"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-runner-v1',
+			hash: workflowHash,
 			id: 'test.runner',
 			sourcePath,
 			version: 1,
@@ -216,7 +230,7 @@ steps:
 			'test.runner',
 			{ repo: 'acme/repo' },
 			{
-				workflowHash: 'hash-runner-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
@@ -234,11 +248,18 @@ steps:
 			new NotifyExecutor({ log }),
 		]);
 
-		const finishedRun = await executeRun(queuedRun.id, 'worker-1', {
-			db,
-			executors,
-			rootDir,
-		});
+		const finishedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-1',
+			},
+			{
+				db,
+				executors,
+				rootDir,
+			},
+		);
 
 		expect(finishedRun?.status).toBe('succeeded');
 		expect(finishedRun?.current_step_id).toBeNull();
@@ -281,10 +302,14 @@ steps:
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
 			'step_succeeded',
+			'step_scheduled',
 			'step_started',
 			'step_succeeded',
+			'step_scheduled',
 			'step_started',
 			'step_succeeded',
 			'workflow_succeeded',
@@ -318,9 +343,10 @@ steps:
     operation: extract:answer:answer_text
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-resume-v1',
+			hash: workflowHash,
 			id: 'test.resume',
 			sourcePath,
 			version: 1,
@@ -330,7 +356,7 @@ steps:
 			'test.resume',
 			{},
 			{
-				workflowHash: 'hash-resume-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
@@ -378,11 +404,18 @@ steps:
 			type: 'analysis',
 		});
 
-		const finishedRun = await executeRun(queuedRun.id, 'worker-2', {
-			db,
-			executors: new ExecutorRegistry([new ArtifactExecutor()]),
-			rootDir,
-		});
+		const finishedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: 1,
+				workerId: 'worker-2',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([new ArtifactExecutor()]),
+				rootDir,
+			},
+		);
 
 		expect(finishedRun?.status).toBe('succeeded');
 		expect(JSON.parse(finishedRun?.result_json ?? '{}')).toEqual({
@@ -418,9 +451,10 @@ steps:
     message: "Approve execution"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-manual-v1',
+			hash: workflowHash,
 			id: 'test.manual',
 			sourcePath,
 			version: 1,
@@ -430,17 +464,25 @@ steps:
 			'test.manual',
 			{},
 			{
-				workflowHash: 'hash-manual-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-3', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-3', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
-		const pausedRun = await executeRun(queuedRun.id, 'worker-3', {
-			db,
-			executors: new ExecutorRegistry([new ManualExecutor()]),
-			rootDir,
-		});
+		const pausedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-3',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([new ManualExecutor()]),
+				rootDir,
+			},
+		);
 
 		expect(pausedRun?.status).toBe('waiting_manual');
 		expect(pausedRun?.claimed_by).toBeNull();
@@ -455,6 +497,8 @@ steps:
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
 			'manual_waiting',
 		]);
@@ -484,9 +528,10 @@ steps:
     message: "approved"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-manual-resume-v1',
+			hash: workflowHash,
 			id: 'test.manual.resume',
 			sourcePath,
 			version: 1,
@@ -496,17 +541,25 @@ steps:
 			'test.manual.resume',
 			{},
 			{
-				workflowHash: 'hash-manual-resume-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-4', 30_000)?.id).toBe(queuedRun.id);
+		const firstClaim = claimNextRun(db, 'worker-4', 30_000);
+		expect(firstClaim?.id).toBe(queuedRun.id);
 
-		const pausedRun = await executeRun(queuedRun.id, 'worker-4', {
-			db,
-			executors: new ExecutorRegistry([new ManualExecutor()]),
-			rootDir,
-		});
+		const pausedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: firstClaim?.claim_epoch ?? 1,
+				workerId: 'worker-4',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([new ManualExecutor()]),
+				rootDir,
+			},
+		);
 
 		expect(pausedRun?.status).toBe('waiting_manual');
 		const waitingStepRun = listStepRuns(db, queuedRun.id)[0];
@@ -526,17 +579,25 @@ steps:
 			},
 		);
 		expect(requeueRunFromManual(db, queuedRun.id)?.status).toBe('queued');
-		expect(claimNextRun(db, 'worker-5', 30_000)?.id).toBe(queuedRun.id);
+		const secondClaim = claimNextRun(db, 'worker-5', 30_000);
+		expect(secondClaim?.id).toBe(queuedRun.id);
 
 		const log = vi.fn();
-		const resumedRun = await executeRun(queuedRun.id, 'worker-5', {
-			db,
-			executors: new ExecutorRegistry([
-				new ManualExecutor(),
-				new NotifyExecutor({ log }),
-			]),
-			rootDir,
-		});
+		const resumedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: secondClaim?.claim_epoch ?? 2,
+				workerId: 'worker-5',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([
+					new ManualExecutor(),
+					new NotifyExecutor({ log }),
+				]),
+				rootDir,
+			},
+		);
 
 		expect(resumedRun?.status).toBe('succeeded');
 		expect(log).toHaveBeenCalledWith(
@@ -559,10 +620,13 @@ steps:
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
 			'manual_waiting',
 			'manual_approved',
 			'step_succeeded',
+			'step_scheduled',
 			'step_started',
 			'step_succeeded',
 			'workflow_succeeded',
@@ -589,9 +653,10 @@ steps:
     command: "false"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-failed-v1',
+			hash: workflowHash,
 			id: 'test.failed',
 			sourcePath,
 			version: 1,
@@ -601,18 +666,26 @@ steps:
 			'test.failed',
 			{},
 			{
-				workflowHash: 'hash-failed-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-4', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-4', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		await expect(
-			executeRun(queuedRun.id, 'worker-4', {
-				db,
-				executors: new ExecutorRegistry([new ThrowingExecExecutor()]),
-				rootDir,
-			}),
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-4',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([new ThrowingExecExecutor()]),
+					rootDir,
+				},
+			),
 		).rejects.toThrow('boom:explode');
 
 		const failedRun = db
@@ -630,6 +703,8 @@ steps:
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
 			'step_failed',
 			'workflow_failed',
@@ -660,14 +735,22 @@ steps:
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-5', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-5', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		await expect(
-			executeRun(queuedRun.id, 'worker-5', {
-				db,
-				executors: new ExecutorRegistry(),
-				rootDir,
-			}),
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-5',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry(),
+					rootDir,
+				},
+			),
 		).rejects.toThrow('Unsafe workflow source_path');
 
 		db.close();
@@ -691,9 +774,10 @@ steps:
     command: "echo unsafe"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-unsafe-artifact',
+			hash: workflowHash,
 			id: 'test.unsafe.artifact',
 			sourcePath,
 			version: 1,
@@ -703,18 +787,26 @@ steps:
 			'test.unsafe.artifact',
 			{},
 			{
-				workflowHash: 'hash-unsafe-artifact',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-6', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-6', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		await expect(
-			executeRun(queuedRun.id, 'worker-6', {
-				db,
-				executors: new ExecutorRegistry([new MaliciousArtifactExecutor()]),
-				rootDir,
-			}),
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-6',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([new MaliciousArtifactExecutor()]),
+					rootDir,
+				},
+			),
 		).rejects.toThrow('Unsafe path artifact name');
 
 		db.close();
@@ -743,9 +835,10 @@ steps:
     message: "should skip"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-skip-failed',
+			hash: workflowHash,
 			id: 'test.skip.failed',
 			sourcePath,
 			version: 1,
@@ -755,11 +848,12 @@ steps:
 			'test.skip.failed',
 			{},
 			{
-				workflowHash: 'hash-skip-failed',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-7', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-7', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		const priorStepRun = createStepRun(db, queuedRun.id, 'build', 1, 'exec', {
 			request: { command: 'echo build' },
@@ -769,13 +863,27 @@ steps:
 			finishedAt: new Date().toISOString(),
 			startedAt: new Date().toISOString(),
 		});
-		updateRunCursor(db, queuedRun.id, 'worker-7', 1, 'notify');
-
-		const pausedRun = await executeRun(queuedRun.id, 'worker-7', {
+		updateRunCursor(
 			db,
-			executors: new ExecutorRegistry([new NotifyExecutor({ log: vi.fn() })]),
-			rootDir,
-		});
+			queuedRun.id,
+			'worker-7',
+			claimedRun?.claim_epoch ?? 1,
+			1,
+			'notify',
+		);
+
+		const pausedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-7',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([new NotifyExecutor({ log: vi.fn() })]),
+				rootDir,
+			},
+		);
 
 		expect(pausedRun?.status).toBe('succeeded');
 		const stepRuns = listStepRuns(db, queuedRun.id);
@@ -809,9 +917,10 @@ steps:
       max_attempts: 2
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-retry-success',
+			hash: workflowHash,
 			id: 'test.retry.success',
 			sourcePath,
 			version: 1,
@@ -821,17 +930,25 @@ steps:
 			'test.retry.success',
 			{},
 			{
-				workflowHash: 'hash-retry-success',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-8', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-8', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
-		const finishedRun = await executeRun(queuedRun.id, 'worker-8', {
-			db,
-			executors: new ExecutorRegistry([new FlakyExecExecutor()]),
-			rootDir,
-		});
+		const finishedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-8',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([new FlakyExecExecutor()]),
+				rootDir,
+			},
+		);
 
 		expect(finishedRun?.status).toBe('succeeded');
 		const stepRuns = listStepRuns(db, queuedRun.id);
@@ -851,9 +968,12 @@ steps:
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
 			'step_failed',
 			'step_retry',
+			'step_scheduled',
 			'step_started',
 			'step_succeeded',
 			'workflow_succeeded',
@@ -883,9 +1003,10 @@ steps:
       on: [provider_error]
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-retry-filtered',
+			hash: workflowHash,
 			id: 'test.retry.filtered',
 			sourcePath,
 			version: 1,
@@ -895,18 +1016,26 @@ steps:
 			'test.retry.filtered',
 			{},
 			{
-				workflowHash: 'hash-retry-filtered',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-9', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-9', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		await expect(
-			executeRun(queuedRun.id, 'worker-9', {
-				db,
-				executors: new ExecutorRegistry([new ThrowingExecExecutor()]),
-				rootDir,
-			}),
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-9',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([new ThrowingExecExecutor()]),
+					rootDir,
+				},
+			),
 		).rejects.toThrow('boom:flaky');
 
 		const stepRuns = listStepRuns(db, queuedRun.id);
@@ -937,9 +1066,10 @@ steps:
       max_attempts: 2
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-retry-exhausted',
+			hash: workflowHash,
 			id: 'test.retry.exhausted',
 			sourcePath,
 			version: 1,
@@ -949,18 +1079,26 @@ steps:
 			'test.retry.exhausted',
 			{},
 			{
-				workflowHash: 'hash-retry-exhausted',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-10', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-10', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		await expect(
-			executeRun(queuedRun.id, 'worker-10', {
-				db,
-				executors: new ExecutorRegistry([new FailedStatusExecExecutor()]),
-				rootDir,
-			}),
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-10',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([new FailedStatusExecExecutor()]),
+					rootDir,
+				},
+			),
 		).rejects.toThrow('returned status failed');
 
 		const failedRun = db
@@ -987,9 +1125,12 @@ steps:
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
 			'step_failed',
 			'step_retry',
+			'step_scheduled',
 			'step_started',
 			'step_failed',
 			'workflow_failed',
@@ -1018,9 +1159,10 @@ steps:
       max_attempts: 2
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-retry-circular',
+			hash: workflowHash,
 			id: 'test.retry.circular',
 			sourcePath,
 			version: 1,
@@ -1030,20 +1172,28 @@ steps:
 			'test.retry.circular',
 			{},
 			{
-				workflowHash: 'hash-retry-circular',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-11', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-11', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		await expect(
-			executeRun(queuedRun.id, 'worker-11', {
-				db,
-				executors: new ExecutorRegistry([
-					new CircularFailedStatusExecExecutor(),
-				]),
-				rootDir,
-			}),
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-11',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([
+						new CircularFailedStatusExecExecutor(),
+					]),
+					rootDir,
+				},
+			),
 		).rejects.toThrow('returned status failed');
 
 		const stepRuns = listStepRuns(db, queuedRun.id);
@@ -1075,9 +1225,10 @@ steps:
     message: "should never run"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-cancel-before-next-step',
+			hash: workflowHash,
 			id: 'test.cancel.before-next-step',
 			sourcePath,
 			version: 1,
@@ -1087,21 +1238,34 @@ steps:
 			'test.cancel.before-next-step',
 			{},
 			{
-				workflowHash: 'hash-cancel-before-next-step',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-12', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-12', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		const log = vi.fn();
-		const canceledRun = await executeRun(queuedRun.id, 'worker-12', {
-			db,
-			executors: new ExecutorRegistry([
-				new CancelingExecExecutor(db, queuedRun.id, 'worker-12'),
-				new NotifyExecutor({ log }),
-			]),
-			rootDir,
-		});
+		const canceledRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-12',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([
+					new CancelingExecExecutor(
+						db,
+						claimedRun?.claim_epoch ?? 1,
+						queuedRun.id,
+						'worker-12',
+					),
+					new NotifyExecutor({ log }),
+				]),
+				rootDir,
+			},
+		);
 
 		expect(canceledRun?.status).toBe('canceled');
 		expect(canceledRun?.current_step_id).toBe('cancel-me');
@@ -1110,16 +1274,18 @@ steps:
 		const stepRuns = listStepRuns(db, queuedRun.id);
 		expect(
 			stepRuns.map((stepRun) => [stepRun.step_id, stepRun.status]),
-		).toEqual([['cancel-me', 'succeeded']]);
+		).toEqual([['cancel-me', 'failed']]);
 		expect(log).not.toHaveBeenCalled();
 
 		const eventRows = db
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
 			.all(queuedRun.id) as Array<{ type: string }>;
 		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
 			'step_started',
-			'step_succeeded',
 			'workflow_canceled',
+			'step_failed',
 		]);
 
 		db.close();
@@ -1147,9 +1313,10 @@ steps:
     message: "should never run"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-cancel-single-event',
+			hash: workflowHash,
 			id: 'test.cancel.single-event',
 			sourcePath,
 			version: 1,
@@ -1159,11 +1326,12 @@ steps:
 			'test.cancel.single-event',
 			{},
 			{
-				workflowHash: 'hash-cancel-single-event',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-13', 30_000)?.id).toBe(queuedRun.id);
+		const claimedRun = claimNextRun(db, 'worker-13', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
 
 		appendEvent(
 			db,
@@ -1177,14 +1345,26 @@ steps:
 			},
 		);
 
-		await executeRun(queuedRun.id, 'worker-13', {
-			db,
-			executors: new ExecutorRegistry([
-				new CancelingExecExecutor(db, queuedRun.id, 'worker-13'),
-				new NotifyExecutor({ log: vi.fn() }),
-			]),
-			rootDir,
-		});
+		await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-13',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([
+					new CancelingExecExecutor(
+						db,
+						claimedRun?.claim_epoch ?? 1,
+						queuedRun.id,
+						'worker-13',
+					),
+					new NotifyExecutor({ log: vi.fn() }),
+				]),
+				rootDir,
+			},
+		);
 
 		const eventRows = db
 			.prepare(
