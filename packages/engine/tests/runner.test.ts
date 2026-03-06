@@ -53,7 +53,7 @@ function createTempRoot(): string {
 }
 
 function writeTemplate(rootDir: string, content: string): string {
-	const templateDir = path.join(rootDir, 'templates');
+	const templateDir = path.join(rootDir, 'library', 'workflows');
 	mkdirSync(templateDir, { recursive: true });
 	const templatePath = path.join(templateDir, 'workflow.yaml');
 	writeFileSync(templatePath, content, 'utf8');

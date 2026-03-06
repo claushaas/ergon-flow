@@ -503,11 +503,12 @@ Example structure:
 /packages
   cli
   engine
-  executors
   clients
   storage
+  shared
 
-/templates
+/library
+  workflows
 
 /docs
 ```

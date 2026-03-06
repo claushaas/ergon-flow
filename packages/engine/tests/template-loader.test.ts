@@ -72,9 +72,9 @@ describe('template loader (C1)', () => {
 		expect(templates[1]?.template.workflow.id).toBe('workflow.b');
 	});
 
-	it('loads templates from workspace /templates directory', () => {
+	it('loads templates from workspace library/workflows directory', () => {
 		const root = createTempDir();
-		const templatesDir = path.join(root, 'templates');
+		const templatesDir = path.join(root, 'library', 'workflows');
 		const templatePath = path.join(templatesDir, 'workflow.yaml');
 		mkdirSync(templatesDir, { recursive: true });
 		writeFileSync(

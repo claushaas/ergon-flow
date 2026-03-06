@@ -9,8 +9,8 @@
 	"name": "@ergon/cli",
 	"scripts": {
 		"build": "tsc --build",
-		"dev": "node src/main.ts",
-		"test": "echo cli tests placeholder"
+		"dev": "tsc --build && node dist/main.js",
+		"test": "vitest run --root ../.. packages/cli/tests"
 	},
 	"type": "module",
 	"version": "0.1.0"

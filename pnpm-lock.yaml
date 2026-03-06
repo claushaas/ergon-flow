@@ -41,9 +41,6 @@ importers:
       '@ergon/clients':
         specifier: workspace:*
         version: link:../clients
-      '@ergon/executors':
-        specifier: workspace:*
-        version: link:../executors
       '@ergon/shared':
         specifier: workspace:*
         version: link:../shared
@@ -53,15 +50,6 @@ importers:
       yaml:
         specifier: ^2.8.2
         version: 2.8.2
-
-  packages/executors:
-    dependencies:
-      '@ergon/clients':
-        specifier: workspace:*
-        version: link:../clients
-      '@ergon/shared':
-        specifier: workspace:*
-        version: link:../shared
 
   packages/shared: {}
 

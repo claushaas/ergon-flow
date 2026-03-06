@@ -1,20 +1,22 @@
-# STOA Monorepo
+# Ergon Flow
 
-Monorepo for the STOA workflow CLI, agent runtime, workflow engine, storage layer,
-and the template/schema library.
-
-This is a scaffold with placeholders to accelerate implementation.
+Monorepo for the `ergon` workflow CLI, worker runtime, storage layer, shared
+contracts, and the declarative workflow library.
 
 ## Packages
 
-- packages/runtime — minimal agent runtime
-- packages/engine — workflow execution engine
-- packages/cli — `stoa` CLI
-- packages/storage — SQLite layer + migrations
-- library/ — workflow templates, agents, and JSON schemas
+- `packages/cli` — `ergon` CLI entrypoint
+- `packages/engine` — worker runtime, engine loop, and built-in step executors
+- `packages/clients` — provider/client adapters
+- `packages/storage` — SQLite bootstrap, migrations, and persistence APIs
+- `packages/shared` — shared runtime contracts and enums
+- `library/` — workflows, agents, and JSON schemas
 
 ## Quickstart
 
+```bash
 pnpm install
-pnpm -r build
-pnpm -r test
+pnpm build
+pnpm test
+node packages/cli/dist/main.js template list
+```

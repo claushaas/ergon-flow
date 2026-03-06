@@ -101,9 +101,10 @@ The repository is structured around four core layers.
 
   cli
   workflow engine
-  executors
+  built-in executors (inside engine)
   storage
   clients
+  shared
 ```
 
 Agents should **never mix responsibilities across layers**.

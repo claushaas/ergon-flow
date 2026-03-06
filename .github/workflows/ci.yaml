@@ -45,5 +45,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Smoke compiled CLI
+        run: node packages/cli/dist/main.js template list
+
+      - name: Smoke root dev entrypoint
+        run: pnpm dev template list
+
       - name: Test
         run: pnpm test
