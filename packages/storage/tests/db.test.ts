@@ -94,7 +94,7 @@ describe('openStorageDb', () => {
 			.prepare('SELECT COUNT(*) as total FROM schema_migrations;')
 			.get() as { total: number };
 
-		expect(row.total).toBe(2);
+		expect(row.total).toBe(3);
 		second.close();
 	});
 

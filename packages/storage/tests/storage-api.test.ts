@@ -53,6 +53,7 @@ describe('storage api (B2)', () => {
 			},
 		);
 		expect(run.status).toBe('queued');
+		expect(run.claim_epoch).toBe(0);
 		expect(run.workflow_id).toBe('code.refactor');
 		expect(run.workflow_version).toBe(1);
 
@@ -114,8 +115,8 @@ describe('storage api (B2)', () => {
 			{ actor: 'worker:test-1', stepRunId: stepRun.id },
 		);
 
-		expect(event1.seq).toBe(1);
-		expect(event2.seq).toBe(2);
+		expect(event1.seq).toBe(2);
+		expect(event2.seq).toBe(3);
 		expect(event2.run_id).toBe(run.id);
 
 		db.close();

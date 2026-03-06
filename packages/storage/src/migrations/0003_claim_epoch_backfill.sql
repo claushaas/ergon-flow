@@ -1,0 +1,2 @@
+ALTER TABLE workflow_runs
+ADD COLUMN claim_epoch INTEGER NOT NULL DEFAULT 0;

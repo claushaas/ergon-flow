@@ -7,6 +7,7 @@ import type { ErrorCode, WorkflowRunStatus } from './enums.js';
 export interface WorkflowRun {
 	attempt: number;
 	claimed_by: string | null;
+	claim_epoch: number;
 	context_json: string | null;
 	created_at: string;
 	current_step_id: string | null;

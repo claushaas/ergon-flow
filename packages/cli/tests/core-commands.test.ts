@@ -223,14 +223,15 @@ steps:
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-1', 30_000)?.id).toBe(run.id);
-		updateRunCursor(db, run.id, 'worker-1', 0, 'gate');
+		const claim = claimNextRun(db, 'worker-1', 30_000);
+		expect(claim?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-1', claim?.claim_epoch ?? 1, 0, 'gate');
 		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
 		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
 			finishedAt: new Date().toISOString(),
 			startedAt: new Date().toISOString(),
 		});
-		markRunWaitingManual(db, run.id, 'worker-1');
+		markRunWaitingManual(db, run.id, 'worker-1', claim?.claim_epoch ?? 1);
 		db.close();
 
 		const result = decideManualStep(run.id, 'gate', {
@@ -246,7 +247,7 @@ steps:
 		expect(getRun(verificationDb, run.id)?.status).toBe('queued');
 		expect(
 			listEvents(verificationDb, run.id).map((event) => event.type),
-		).toEqual(['manual_approved']);
+		).toEqual(['workflow_scheduled', 'manual_approved']);
 		verificationDb.close();
 	});
 
@@ -270,14 +271,15 @@ steps:
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-2', 30_000)?.id).toBe(run.id);
-		updateRunCursor(db, run.id, 'worker-2', 0, 'gate');
+		const claim = claimNextRun(db, 'worker-2', 30_000);
+		expect(claim?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-2', claim?.claim_epoch ?? 1, 0, 'gate');
 		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
 		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
 			finishedAt: new Date().toISOString(),
 			startedAt: new Date().toISOString(),
 		});
-		markRunWaitingManual(db, run.id, 'worker-2');
+		markRunWaitingManual(db, run.id, 'worker-2', claim?.claim_epoch ?? 1);
 		db.close();
 
 		const result = decideManualStep(run.id, 'gate', {
@@ -294,7 +296,12 @@ steps:
 		expect(listStepRuns(verificationDb, run.id)[0]?.status).toBe('failed');
 		expect(
 			listEvents(verificationDb, run.id).map((event) => event.type),
-		).toEqual(['manual_rejected', 'step_failed', 'workflow_failed']);
+		).toEqual([
+			'workflow_scheduled',
+			'manual_rejected',
+			'step_failed',
+			'workflow_failed',
+		]);
 		verificationDb.close();
 	});
 
@@ -327,7 +334,7 @@ steps:
 		expect(getRun(verificationDb, run.id)?.status).toBe('canceled');
 		expect(
 			listEvents(verificationDb, run.id).map((event) => event.type),
-		).toEqual(['workflow_canceled']);
+		).toEqual(['workflow_scheduled', 'workflow_canceled']);
 		verificationDb.close();
 	});
 
@@ -351,14 +358,15 @@ steps:
 				workflowVersion: 1,
 			},
 		);
-		expect(claimNextRun(db, 'worker-3', 30_000)?.id).toBe(run.id);
-		updateRunCursor(db, run.id, 'worker-3', 0, 'gate');
+		const claim = claimNextRun(db, 'worker-3', 30_000);
+		expect(claim?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-3', claim?.claim_epoch ?? 1, 0, 'gate');
 		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
 		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
 			finishedAt: new Date().toISOString(),
 			startedAt: new Date().toISOString(),
 		});
-		markRunWaitingManual(db, run.id, 'worker-3');
+		markRunWaitingManual(db, run.id, 'worker-3', claim?.claim_epoch ?? 1);
 		db.close();
 
 		const canceledRun = cancelWorkflowRun(run.id, { dbPath, rootDir });
@@ -370,7 +378,7 @@ steps:
 		);
 		expect(
 			listEvents(verificationDb, run.id).map((event) => event.type),
-		).toEqual(['workflow_canceled']);
+		).toEqual(['workflow_scheduled', 'workflow_canceled']);
 		verificationDb.close();
 	});
 });
