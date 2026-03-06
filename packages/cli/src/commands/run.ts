@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadAndValidateTemplateFromFile } from '@ergon/engine';
 import {
@@ -7,11 +6,17 @@ import {
 	getRun,
 	getWorkflow,
 	listStepRuns,
+	openStorageDb,
 	registerWorkflow,
 } from '@ergon/storage';
 import { loadCliConfig } from '../config/index.js';
-import { openCliDb } from '../db.js';
 import { printJson } from '../output/format.js';
+import {
+	assertValidWorkflowId,
+	hashFile,
+	resolvePathWithinBase,
+	resolveWorkflowTemplatesDir,
+} from '../utils.js';
 
 export interface RunCommandOptions {
 	dbPath?: string;
@@ -24,15 +29,14 @@ export interface RunStatusCommandOptions {
 	rootDir?: string;
 }
 
-function hashFile(filePath: string): string {
-	return createHash('sha256').update(readFileSync(filePath)).digest('hex');
-}
-
 function resolveWorkflowTemplatePath(
 	rootDir: string,
 	workflowId: string,
 ): string {
-	return path.join(rootDir, 'library', 'workflows', `${workflowId}.yaml`);
+	return path.join(
+		resolveWorkflowTemplatesDir(rootDir),
+		`${assertValidWorkflowId(workflowId)}.yaml`,
+	);
 }
 
 function parseInputs(
@@ -43,11 +47,13 @@ function parseInputs(
 		return {};
 	}
 
-	const absoluteInputPath = path.resolve(rootDir, rawInputs);
-	const content =
-		existsSync(absoluteInputPath) && !rawInputs.trim().startsWith('{')
-			? readFileSync(absoluteInputPath, 'utf8')
-			: rawInputs;
+	const trimmedInputs = rawInputs.trim();
+	const content = trimmedInputs.startsWith('{')
+		? trimmedInputs
+		: readFileSync(
+				resolvePathWithinBase(rootDir, trimmedInputs, 'inputs path'),
+				'utf8',
+			);
 	const parsed = JSON.parse(content) as unknown;
 	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
 		throw new Error('Run inputs must be a JSON object');
@@ -60,7 +66,9 @@ export function scheduleRun(
 	commandOptions: RunCommandOptions = {},
 ) {
 	const config = loadCliConfig(commandOptions.rootDir);
-	const db = openCliDb(commandOptions.dbPath ?? config.dbPath);
+	const db = openStorageDb({
+		dbPath: commandOptions.dbPath ?? config.dbPath,
+	});
 
 	try {
 		const templatePath = resolveWorkflowTemplatePath(
@@ -110,7 +118,9 @@ export function getRunStatus(
 	stepRuns: ReturnType<typeof listStepRuns>;
 } {
 	const config = loadCliConfig(commandOptions.rootDir);
-	const db = openCliDb(commandOptions.dbPath ?? config.dbPath);
+	const db = openStorageDb({
+		dbPath: commandOptions.dbPath ?? config.dbPath,
+	});
 
 	try {
 		const run = getRun(db, runId);

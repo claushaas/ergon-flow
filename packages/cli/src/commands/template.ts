@@ -5,13 +5,10 @@ import {
 } from '@ergon/engine';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
+import { resolveWorkflowTemplatesDir } from '../utils.js';
 
 export interface TemplateListCommandOptions {
 	rootDir?: string;
-}
-
-function resolveWorkflowTemplatesDir(rootDir: string): string {
-	return path.join(rootDir, 'library', 'workflows');
 }
 
 export function listTemplates(
@@ -40,8 +37,9 @@ export function listTemplates(
 				valid: true,
 				version: validated.template.workflow.version,
 			};
-		} catch {
+		} catch (_error) {
 			return {
+				description: loadedTemplate.template.workflow.description,
 				id: loadedTemplate.template.workflow.id,
 				path: path.relative(config.rootDir, loadedTemplate.templatePath),
 				stepCount: loadedTemplate.template.steps.length,

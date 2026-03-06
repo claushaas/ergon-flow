@@ -149,4 +149,42 @@ steps:
 			message: 'from-file',
 		});
 	});
+
+	it('rejects workflow ids with path traversal sequences', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+
+		expect(() =>
+			scheduleRun('../secrets', {
+				dbPath,
+				rootDir,
+			}),
+		).toThrow('Invalid workflow id');
+	});
+
+	it('rejects input file paths that escape the workspace root', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		writeWorkflow(
+			rootDir,
+			'code.secure-input.yaml',
+			`
+workflow:
+  id: code.secure-input
+  version: 1
+steps:
+  - id: echo
+    kind: exec
+    command: "echo {{ inputs.message }}"
+`,
+		);
+
+		expect(() =>
+			scheduleRun('code.secure-input', {
+				dbPath,
+				inputs: '../outside.json',
+				rootDir,
+			}),
+		).toThrow('Invalid inputs path');
+	});
 });
