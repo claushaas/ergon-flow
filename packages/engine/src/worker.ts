@@ -178,12 +178,10 @@ function getStepToRecover(
 	run: WorkflowRunRow,
 	stepId: string,
 ): StepDefinition {
-	const step =
-		template.steps.find((entry) => entry.id === stepId) ??
-		template.steps[run.current_step_index];
+	const step = template.steps.find((entry) => entry.id === stepId);
 	if (!step) {
 		throw new Error(
-			`Workflow run "${run.id}" could not resolve recovery step "${stepId}"`,
+			`Workflow run "${run.id}" could not resolve recovery step "${stepId}" from the current workflow version. The workflow may have been updated.`,
 		);
 	}
 	return step;

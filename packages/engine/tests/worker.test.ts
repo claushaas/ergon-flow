@@ -373,4 +373,104 @@ steps:
 
 		db.close();
 	});
+
+	it('fails recovery clearly when the stale step no longer exists in the template', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.worker.recovery.mismatch
+  version: 1
+steps:
+  - id: renamed.exec
+    kind: exec
+    command: "echo renamed"
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-worker-recovery-mismatch-v1',
+			id: 'test.worker.recovery.mismatch',
+			sourcePath,
+			version: 1,
+		});
+		createRun(
+			db,
+			'test.worker.recovery.mismatch',
+			{},
+			{
+				id: 'run-worker-recovery-mismatch',
+				workflowHash: 'hash-worker-recovery-mismatch-v1',
+				workflowVersion: 1,
+			},
+		);
+
+		db.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'running',
+			     claimed_by = 'worker-dead',
+			     lease_until = ?,
+			     started_at = ?,
+			     updated_at = ?,
+			     current_step_id = 'removed.exec',
+			     current_step_index = 0,
+			     attempt = 1
+			 WHERE id = 'run-worker-recovery-mismatch';`,
+		).run(
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+			'2026-03-05T00:00:00.000Z',
+		);
+
+		const staleStepRun = createStepRun(
+			db,
+			'run-worker-recovery-mismatch',
+			'removed.exec',
+			1,
+			'exec',
+		);
+		updateStepRunStatus(db, staleStepRun.id, 'running', {
+			startedAt: '2026-03-05T00:00:00.000Z',
+		});
+		updateRunCursor(
+			db,
+			'run-worker-recovery-mismatch',
+			'worker-dead',
+			0,
+			'removed.exec',
+		);
+
+		const executors = new ExecutorRegistry([
+			new ExecExecutor({
+				async spawn() {
+					return {
+						code: 0,
+						signal: null,
+						stderr: '',
+						stdout: 'should not run\n',
+					};
+				},
+			}),
+		]);
+
+		await expect(
+			startWorker({
+				db,
+				executors,
+				maxRuns: 1,
+				pollIntervalMs: 5,
+				rootDir,
+				workerId: 'worker-recovered-mismatch',
+			}),
+		).rejects.toThrow(
+			'could not resolve recovery step "removed.exec" from the current workflow version',
+		);
+
+		db.close();
+	});
 });
