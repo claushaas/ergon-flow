@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const WORKFLOW_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+const STEP_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 
 export function hashFile(filePath: string): string {
 	return createHash('sha256').update(readFileSync(filePath)).digest('hex');
@@ -20,6 +21,16 @@ export function assertValidWorkflowId(workflowId: string): string {
 	}
 
 	return workflowId;
+}
+
+export function assertValidStepId(stepId: string): string {
+	if (!STEP_ID_PATTERN.test(stepId)) {
+		throw new Error(
+			`Invalid step id "${stepId}". Only lowercase letters, numbers, dots, dashes, and underscores are allowed.`,
+		);
+	}
+
+	return stepId;
 }
 
 export function resolvePathWithinBase(

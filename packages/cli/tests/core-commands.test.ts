@@ -1,8 +1,22 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { listWorkflows, openStorageDb } from '@ergon/storage';
+import {
+	claimNextRun,
+	createRun,
+	createStepRun,
+	getRun,
+	listEvents,
+	listStepRuns,
+	listWorkflows,
+	markRunWaitingManual,
+	openStorageDb,
+	registerWorkflow,
+	updateRunCursor,
+	updateStepRunStatus,
+} from '@ergon/storage';
 import { afterEach, describe, expect, it } from 'vitest';
+import { decideManualStep } from '../src/commands/approve.js';
 import { getRunStatus, scheduleRun } from '../src/commands/run.js';
 import { listTemplates } from '../src/commands/template.js';
 import { syncWorkflows } from '../src/commands/workflow.js';
@@ -186,5 +200,100 @@ steps:
 				rootDir,
 			}),
 		).toThrow('Invalid inputs path');
+	});
+
+	it('approves a waiting manual step and requeues the run', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		const db = openStorageDb({ dbPath });
+
+		registerWorkflow(db, {
+			hash: 'hash-approve-v1',
+			id: 'code.approve',
+			sourcePath: 'library/workflows/code.approve.yaml',
+			version: 1,
+		});
+		const run = createRun(
+			db,
+			'code.approve',
+			{},
+			{
+				workflowHash: 'hash-approve-v1',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-1', 30_000)?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-1', 0, 'gate');
+		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
+		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
+			finishedAt: new Date().toISOString(),
+			startedAt: new Date().toISOString(),
+		});
+		markRunWaitingManual(db, run.id, 'worker-1');
+		db.close();
+
+		const result = decideManualStep(run.id, 'gate', {
+			dbPath,
+			decision: 'approve',
+			rootDir,
+		});
+
+		expect(result.decision).toBe('approve');
+		expect(result.run.status).toBe('queued');
+
+		const verificationDb = openStorageDb({ dbPath });
+		expect(getRun(verificationDb, run.id)?.status).toBe('queued');
+		expect(
+			listEvents(verificationDb, run.id).map((event) => event.type),
+		).toEqual(['manual_approved']);
+		verificationDb.close();
+	});
+
+	it('rejects a waiting manual step and fails the run', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		const db = openStorageDb({ dbPath });
+
+		registerWorkflow(db, {
+			hash: 'hash-reject-v1',
+			id: 'code.reject',
+			sourcePath: 'library/workflows/code.reject.yaml',
+			version: 1,
+		});
+		const run = createRun(
+			db,
+			'code.reject',
+			{},
+			{
+				workflowHash: 'hash-reject-v1',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-2', 30_000)?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-2', 0, 'gate');
+		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
+		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
+			finishedAt: new Date().toISOString(),
+			startedAt: new Date().toISOString(),
+		});
+		markRunWaitingManual(db, run.id, 'worker-2');
+		db.close();
+
+		const result = decideManualStep(run.id, 'gate', {
+			dbPath,
+			decision: 'reject',
+			rootDir,
+		});
+
+		expect(result.decision).toBe('reject');
+		expect(result.run.status).toBe('failed');
+
+		const verificationDb = openStorageDb({ dbPath });
+		expect(getRun(verificationDb, run.id)?.error_code).toBe('manual_rejected');
+		expect(listStepRuns(verificationDb, run.id)[0]?.status).toBe('failed');
+		expect(
+			listEvents(verificationDb, run.id).map((event) => event.type),
+		).toEqual(['manual_rejected', 'step_failed', 'workflow_failed']);
+		verificationDb.close();
 	});
 });

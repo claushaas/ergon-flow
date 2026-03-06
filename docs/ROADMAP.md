@@ -340,7 +340,7 @@ Deliverable: kill -9 worker mid-run, restart worker, run resumes deterministical
 - `ergon run <workflow> --inputs <json|file>`
 - `ergon run-status <run_id>`
 
-### Phase H2 — Manual approvals
+### Phase H2 — Manual approvals - ✅
 
 - `ergon approve <run_id> <step_id> --decision approve|reject`
 - Persist approval as event

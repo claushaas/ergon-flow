@@ -221,6 +221,43 @@ export function listStepRuns(db: DatabaseSync, runId: string): StepRunRow[] {
 		.all(runId) as unknown as StepRunRow[];
 }
 
+export function getLatestStepRun(
+	db: DatabaseSync,
+	runId: string,
+	stepId: string,
+): StepRunRow | null {
+	const row = db
+		.prepare(
+			`SELECT * FROM step_runs
+			 WHERE run_id = ?
+			   AND step_id = ?
+			 ORDER BY attempt DESC, created_at DESC, id DESC
+			 LIMIT 1;`,
+		)
+		.get(runId, stepId);
+
+	return (row as unknown as StepRunRow | undefined) ?? null;
+}
+
+export function getWaitingManualStepRun(
+	db: DatabaseSync,
+	runId: string,
+	stepId: string,
+): StepRunRow | null {
+	const row = db
+		.prepare(
+			`SELECT * FROM step_runs
+			 WHERE run_id = ?
+			   AND step_id = ?
+			   AND status = 'waiting_manual'
+			 ORDER BY attempt DESC, created_at DESC, id DESC
+			 LIMIT 1;`,
+		)
+		.get(runId, stepId);
+
+	return (row as unknown as StepRunRow | undefined) ?? null;
+}
+
 export function createStepRun(
 	db: DatabaseSync,
 	runId: string,
@@ -500,6 +537,64 @@ export function markRunWaitingManual(
 			 RETURNING *;`,
 		)
 		.get(now, runId, workerId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function requeueRunFromManual(
+	db: DatabaseSync,
+	runId: string,
+): WorkflowRunRow | null {
+	const now = new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'queued',
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     error_code = NULL,
+			     error_message = NULL,
+			     error_detail_json = NULL,
+			     finished_at = NULL,
+			     updated_at = ?
+			 WHERE id = ?
+			   AND status = 'waiting_manual'
+			 RETURNING *;`,
+		)
+		.get(now, runId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function failRunFromManual(
+	db: DatabaseSync,
+	runId: string,
+	options: RunFailureOptions = {},
+): WorkflowRunRow | null {
+	const now = options.finishedAt ?? new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'failed',
+			     error_code = ?,
+			     error_message = ?,
+			     error_detail_json = ?,
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     finished_at = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			   AND status = 'waiting_manual'
+			 RETURNING *;`,
+		)
+		.get(
+			options.errorCode ?? null,
+			options.errorMessage ?? null,
+			optionalJson(options.errorDetail),
+			now,
+			now,
+			runId,
+		);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }

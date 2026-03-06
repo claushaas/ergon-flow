@@ -22,7 +22,7 @@ export interface AppendEventOptions {
 	ts?: string;
 }
 
-export function appendEvent(
+function insertEvent(
 	db: DatabaseSync,
 	runId: string,
 	type: string,
@@ -34,46 +34,99 @@ export function appendEvent(
 	const createdAt = nowIso();
 	const actor = options.actor ?? 'system';
 
-	const row = runInTransaction(
-		db,
-		() => {
-			const seqRow = db
-				.prepare(
-					'SELECT COALESCE(MAX(seq), 0) + 1 as next_seq FROM events WHERE run_id = ?;',
-				)
-				.get(runId) as { next_seq: number };
+	const seqRow = db
+		.prepare(
+			'SELECT COALESCE(MAX(seq), 0) + 1 as next_seq FROM events WHERE run_id = ?;',
+		)
+		.get(runId) as { next_seq: number };
 
-			return db
-				.prepare(
-					`INSERT INTO events (
-						id,
-						run_id,
-						step_run_id,
-						type,
-						ts,
-						actor,
-						seq,
-						payload_json,
-						created_at
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`,
-				)
-				.get(
-					eventId,
-					runId,
-					options.stepRunId ?? null,
-					type,
-					timestamp,
-					actor,
-					seqRow.next_seq,
-					optionalJson(payload),
-					createdAt,
-				);
-		},
-		{ mode: 'IMMEDIATE' },
-	);
+	const row = db
+		.prepare(
+			`INSERT INTO events (
+				id,
+				run_id,
+				step_run_id,
+				type,
+				ts,
+				actor,
+				seq,
+				payload_json,
+				created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;`,
+		)
+		.get(
+			eventId,
+			runId,
+			options.stepRunId ?? null,
+			type,
+			timestamp,
+			actor,
+			seqRow.next_seq,
+			optionalJson(payload),
+			createdAt,
+		);
 
 	return assertRow<EventRow>(
 		row,
 		`Failed to load event ${eventId} after insert`,
 	);
+}
+
+export function appendEvent(
+	db: DatabaseSync,
+	runId: string,
+	type: string,
+	payload?: unknown,
+	options: AppendEventOptions = {},
+): EventRow {
+	return runInTransaction(
+		db,
+		() => insertEvent(db, runId, type, payload, options),
+		{ mode: 'IMMEDIATE' },
+	);
+}
+
+export function appendEventInTransaction(
+	db: DatabaseSync,
+	runId: string,
+	type: string,
+	payload?: unknown,
+	options: AppendEventOptions = {},
+): EventRow {
+	return insertEvent(db, runId, type, payload, options);
+}
+
+export function listEvents(db: DatabaseSync, runId: string): EventRow[] {
+	return db
+		.prepare(
+			`SELECT * FROM events
+			 WHERE run_id = ?
+			 ORDER BY seq ASC;`,
+		)
+		.all(runId) as unknown as EventRow[];
+}
+
+export function getLatestEventForStepRun(
+	db: DatabaseSync,
+	runId: string,
+	stepRunId: string,
+	types: readonly string[],
+): EventRow | null {
+	if (types.length === 0) {
+		return null;
+	}
+
+	const placeholders = types.map(() => '?').join(', ');
+	const row = db
+		.prepare(
+			`SELECT * FROM events
+			 WHERE run_id = ?
+			   AND step_run_id = ?
+			   AND type IN (${placeholders})
+			 ORDER BY seq DESC
+			 LIMIT 1;`,
+		)
+		.get(runId, stepRunId, ...types);
+
+	return (row as unknown as EventRow | undefined) ?? null;
 }
