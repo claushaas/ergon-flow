@@ -338,19 +338,29 @@ export function claimNextRun(
 					 SET status = 'running',
 					     claimed_by = ?,
 					     lease_until = ?,
+					     attempt = CASE
+					       WHEN status = 'running' THEN attempt + 1
+					       ELSE attempt
+					     END,
 					     started_at = COALESCE(started_at, ?),
 					     updated_at = ?
 					 WHERE id = (
 					   SELECT id
 					   FROM workflow_runs
-					   WHERE status = 'queued'
+					   WHERE (
+					     status = 'queued'
 					     AND (lease_until IS NULL OR lease_until < ?)
+					   ) OR (
+					     status = 'running'
+					     AND lease_until IS NOT NULL
+					     AND lease_until < ?
+					   )
 					   ORDER BY priority DESC, scheduled_at ASC
 					   LIMIT 1
 					 )
 					 RETURNING *;`,
 				)
-				.get(workerId, leaseUntil, now, now, now);
+				.get(workerId, leaseUntil, now, now, now, now);
 
 			return (claimed as unknown as WorkflowRunRow | undefined) ?? null;
 		},
