@@ -78,6 +78,25 @@ interface PreparedStepExecution {
 	stepRun: ReturnType<typeof createStepRun>;
 }
 
+interface ExecuteStepOptions {
+	artifactBaseDir: string;
+	db: DatabaseSync;
+	executors: ExecutorRegistry;
+	inputs: Record<string, unknown>;
+	runId: string;
+	state: ResolvedRunState;
+	step: StepDefinition;
+	stepIndex: number;
+	stepRuns: ReturnType<typeof listStepRuns>;
+	template: WorkflowTemplate;
+	workerId: string;
+}
+
+interface ExecuteStepResult {
+	canceledRun: ReturnType<typeof getRun>;
+	shouldContinue: boolean;
+}
+
 const MAX_SAFE_JSON_BYTES = 128 * 1024;
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -827,6 +846,294 @@ function abortIfCanceled(
 	return currentRun;
 }
 
+async function executeStep(
+	options: ExecuteStepOptions,
+): Promise<ExecuteStepResult> {
+	const canceledRun = abortIfCanceled(
+		options.db,
+		options.runId,
+		options.workerId,
+		'canceled_before_next_step',
+	);
+	if (canceledRun) {
+		return {
+			canceledRun,
+			shouldContinue: false,
+		};
+	}
+
+	updateRunCursor(
+		options.db,
+		options.runId,
+		options.workerId,
+		options.stepIndex,
+		options.step.id,
+	);
+
+	if (shouldSkipStep(options.step, options.state.completedSteps)) {
+		const { stepRun } = prepareStepExecution(
+			options.db,
+			options.runId,
+			options.workerId,
+			options.stepIndex,
+			options.step,
+			options.template,
+			options.inputs,
+			options.state.artifacts,
+			options.stepRuns,
+		);
+		const skippedOutput = {
+			reason: 'dependency_not_satisfied',
+			skipped_by: options.step.depends_on ?? [],
+		};
+		options.state.completedSteps.set(options.step.id, {
+			output: skippedOutput,
+			status: 'skipped',
+		});
+		handleSkippedStep(options.db, options.workerId, {
+			output: skippedOutput,
+			runId: options.runId,
+			step: options.step,
+			stepRun,
+			stepRuns: options.stepRuns,
+		});
+		updateRunCursor(
+			options.db,
+			options.runId,
+			options.workerId,
+			options.stepIndex + 1,
+			options.template.steps[options.stepIndex + 1]?.id ?? null,
+		);
+		return {
+			canceledRun: null,
+			shouldContinue: true,
+		};
+	}
+
+	while (true) {
+		const { context, request, stepAttempt, stepRun } = prepareStepExecution(
+			options.db,
+			options.runId,
+			options.workerId,
+			options.stepIndex,
+			options.step,
+			options.template,
+			options.inputs,
+			options.state.artifacts,
+			options.stepRuns,
+		);
+
+		updateStepRunStatus(options.db, stepRun.id, 'running', {
+			request,
+			startedAt: new Date().toISOString(),
+		});
+		appendEvent(
+			options.db,
+			options.runId,
+			'step_started',
+			{
+				attempt: stepAttempt,
+				step_id: options.step.id,
+				step_kind: options.step.kind,
+			},
+			{
+				actor: `worker:${options.workerId}`,
+				stepRunId: stepRun.id,
+			},
+		);
+
+		let result: ExecutorResult;
+		try {
+			result = await getStepExecutor(options.executors, options.step).execute(
+				options.step,
+				context,
+			);
+		} catch (error) {
+			const failure = buildFailureMetadata(options.step, error);
+			if (canRetryStep(options.step, stepAttempt, failure.code)) {
+				recordRetryableFailure(
+					options.db,
+					options.runId,
+					options.workerId,
+					options.step.id,
+					stepRun,
+					options.stepRuns,
+					stepAttempt + 1,
+					failure,
+				);
+				continue;
+			}
+			markStepFailed(
+				options.db,
+				options.runId,
+				options.workerId,
+				options.step,
+				stepRun.id,
+				error,
+			);
+		}
+
+		appendStepEvents(
+			options.db,
+			options.runId,
+			stepRun.id,
+			options.workerId,
+			result.events,
+		);
+
+		if (result.status === 'failed') {
+			const failure = buildFailureMetadata(
+				options.step,
+				new Error(`Step "${options.step.id}" returned status failed`),
+			);
+			if (canRetryStep(options.step, stepAttempt, failure.code)) {
+				recordRetryableFailure(
+					options.db,
+					options.runId,
+					options.workerId,
+					options.step.id,
+					stepRun,
+					options.stepRuns,
+					stepAttempt + 1,
+					failure,
+					result.outputs,
+				);
+				continue;
+			}
+			markStepFailed(
+				options.db,
+				options.runId,
+				options.workerId,
+				options.step,
+				stepRun.id,
+				new Error(`Step "${options.step.id}" returned status failed`),
+				result.outputs,
+			);
+		}
+
+		if (result.status === 'waiting_manual') {
+			const runCanceledDuringStep = abortIfCanceled(
+				options.db,
+				options.runId,
+				options.workerId,
+				'canceled_during_step',
+			);
+			if (runCanceledDuringStep) {
+				return {
+					canceledRun: runCanceledDuringStep,
+					shouldContinue: false,
+				};
+			}
+
+			updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
+				finishedAt: new Date().toISOString(),
+				output: normalizeForStorage(result.outputs),
+			});
+			markRunWaitingManual(options.db, options.runId, options.workerId);
+			return {
+				canceledRun: getRun(options.db, options.runId),
+				shouldContinue: false,
+			};
+		}
+
+		if (result.status === 'skipped') {
+			const skippedOutput = result.outputs ?? {};
+			options.state.completedSteps.set(options.step.id, {
+				output: skippedOutput,
+				status: 'skipped',
+			});
+			handleSkippedStep(options.db, options.workerId, {
+				output: skippedOutput,
+				runId: options.runId,
+				step: options.step,
+				stepRun,
+				stepRuns: options.stepRuns,
+			});
+			const runCanceledDuringStep = abortIfCanceled(
+				options.db,
+				options.runId,
+				options.workerId,
+				'canceled_during_step',
+			);
+			if (runCanceledDuringStep) {
+				return {
+					canceledRun: runCanceledDuringStep,
+					shouldContinue: false,
+				};
+			}
+			updateRunCursor(
+				options.db,
+				options.runId,
+				options.workerId,
+				options.stepIndex + 1,
+				options.template.steps[options.stepIndex + 1]?.id ?? null,
+			);
+			return {
+				canceledRun: null,
+				shouldContinue: true,
+			};
+		}
+
+		const storedArtifacts = persistArtifacts(
+			options.db,
+			options.artifactBaseDir,
+			options.runId,
+			stepRun.id,
+			result.artifacts ?? [],
+		);
+		Object.assign(options.state.artifacts, storedArtifacts);
+		updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
+			finishedAt: new Date().toISOString(),
+			output: normalizeForStorage(result.outputs),
+		});
+		appendEvent(
+			options.db,
+			options.runId,
+			'step_succeeded',
+			{
+				artifact_names: Object.keys(storedArtifacts),
+				step_id: options.step.id,
+			},
+			{
+				actor: `worker:${options.workerId}`,
+				stepRunId: stepRun.id,
+			},
+		);
+		options.state.completedSteps.set(options.step.id, {
+			output: result.outputs,
+			status: 'succeeded',
+		});
+		const runCanceledDuringStep = abortIfCanceled(
+			options.db,
+			options.runId,
+			options.workerId,
+			'canceled_during_step',
+		);
+		if (runCanceledDuringStep) {
+			return {
+				canceledRun: runCanceledDuringStep,
+				shouldContinue: false,
+			};
+		}
+		updateRunCursor(
+			options.db,
+			options.runId,
+			options.workerId,
+			options.stepIndex + 1,
+			options.template.steps[options.stepIndex + 1]?.id ?? null,
+		);
+		options.stepRuns.push({
+			...stepRun,
+			output_json: safeJsonStringify(result.outputs),
+			status: 'succeeded',
+		});
+		return {
+			canceledRun: null,
+			shouldContinue: true,
+		};
+	}
+}
+
 export async function executeRun(
 	runId: string,
 	workerId: string,
@@ -872,249 +1179,28 @@ export async function executeRun(
 		stepIndex < template.steps.length;
 		stepIndex += 1
 	) {
-		const canceledRun = abortIfCanceled(
-			options.db,
-			run.id,
-			workerId,
-			'canceled_before_next_step',
-		);
-		if (canceledRun) {
-			return canceledRun;
-		}
-
 		const step = template.steps[stepIndex];
 		if (!step) {
 			break;
 		}
 
-		updateRunCursor(options.db, run.id, workerId, stepIndex, step.id);
-
-		if (shouldSkipStep(step, state.completedSteps)) {
-			const { stepRun } = prepareStepExecution(
-				options.db,
-				run.id,
-				workerId,
-				stepIndex,
-				step,
-				template,
-				inputs,
-				state.artifacts,
-				stepRuns,
-			);
-			const skippedOutput = {
-				reason: 'dependency_not_satisfied',
-				skipped_by: step.depends_on ?? [],
-			};
-			state.completedSteps.set(step.id, {
-				output: skippedOutput,
-				status: 'skipped',
-			});
-			handleSkippedStep(options.db, workerId, {
-				output: skippedOutput,
-				runId: run.id,
-				step,
-				stepRun,
-				stepRuns,
-			});
-			updateRunCursor(
-				options.db,
-				run.id,
-				workerId,
-				stepIndex + 1,
-				template.steps[stepIndex + 1]?.id ?? null,
-			);
-			continue;
+		const stepResult = await executeStep({
+			artifactBaseDir,
+			db: options.db,
+			executors: options.executors,
+			inputs,
+			runId: run.id,
+			state,
+			step,
+			stepIndex,
+			stepRuns,
+			template,
+			workerId,
+		});
+		if (stepResult.canceledRun) {
+			return stepResult.canceledRun;
 		}
-
-		while (true) {
-			const { context, request, stepAttempt, stepRun } = prepareStepExecution(
-				options.db,
-				run.id,
-				workerId,
-				stepIndex,
-				step,
-				template,
-				inputs,
-				state.artifacts,
-				stepRuns,
-			);
-
-			updateStepRunStatus(options.db, stepRun.id, 'running', {
-				request,
-				startedAt: new Date().toISOString(),
-			});
-			appendEvent(
-				options.db,
-				run.id,
-				'step_started',
-				{
-					attempt: stepAttempt,
-					step_id: step.id,
-					step_kind: step.kind,
-				},
-				{
-					actor: `worker:${workerId}`,
-					stepRunId: stepRun.id,
-				},
-			);
-
-			let result: ExecutorResult;
-			try {
-				result = await getStepExecutor(options.executors, step).execute(
-					step,
-					context,
-				);
-			} catch (error) {
-				const failure = buildFailureMetadata(step, error);
-				if (canRetryStep(step, stepAttempt, failure.code)) {
-					recordRetryableFailure(
-						options.db,
-						run.id,
-						workerId,
-						step.id,
-						stepRun,
-						stepRuns,
-						stepAttempt + 1,
-						failure,
-					);
-					continue;
-				}
-				markStepFailed(options.db, run.id, workerId, step, stepRun.id, error);
-			}
-
-			appendStepEvents(options.db, run.id, stepRun.id, workerId, result.events);
-
-			if (result.status === 'failed') {
-				const failure = buildFailureMetadata(
-					step,
-					new Error(`Step "${step.id}" returned status failed`),
-				);
-				if (canRetryStep(step, stepAttempt, failure.code)) {
-					recordRetryableFailure(
-						options.db,
-						run.id,
-						workerId,
-						step.id,
-						stepRun,
-						stepRuns,
-						stepAttempt + 1,
-						failure,
-						result.outputs,
-					);
-					continue;
-				}
-				markStepFailed(
-					options.db,
-					run.id,
-					workerId,
-					step,
-					stepRun.id,
-					new Error(`Step "${step.id}" returned status failed`),
-					result.outputs,
-				);
-			}
-
-			if (result.status === 'waiting_manual') {
-				const canceledRun = abortIfCanceled(
-					options.db,
-					run.id,
-					workerId,
-					'canceled_during_step',
-				);
-				if (canceledRun) {
-					return canceledRun;
-				}
-
-				updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
-					finishedAt: new Date().toISOString(),
-					output: normalizeForStorage(result.outputs),
-				});
-				markRunWaitingManual(options.db, run.id, workerId);
-				return getRun(options.db, run.id);
-			}
-
-			if (result.status === 'skipped') {
-				const skippedOutput = result.outputs ?? {};
-				state.completedSteps.set(step.id, {
-					output: skippedOutput,
-					status: 'skipped',
-				});
-				handleSkippedStep(options.db, workerId, {
-					output: skippedOutput,
-					runId: run.id,
-					step,
-					stepRun,
-					stepRuns,
-				});
-				const canceledRun = abortIfCanceled(
-					options.db,
-					run.id,
-					workerId,
-					'canceled_during_step',
-				);
-				if (canceledRun) {
-					return canceledRun;
-				}
-				updateRunCursor(
-					options.db,
-					run.id,
-					workerId,
-					stepIndex + 1,
-					template.steps[stepIndex + 1]?.id ?? null,
-				);
-				break;
-			}
-
-			const storedArtifacts = persistArtifacts(
-				options.db,
-				artifactBaseDir,
-				run.id,
-				stepRun.id,
-				result.artifacts ?? [],
-			);
-			Object.assign(state.artifacts, storedArtifacts);
-			updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
-				finishedAt: new Date().toISOString(),
-				output: normalizeForStorage(result.outputs),
-			});
-			appendEvent(
-				options.db,
-				run.id,
-				'step_succeeded',
-				{
-					artifact_names: Object.keys(storedArtifacts),
-					step_id: step.id,
-				},
-				{
-					actor: `worker:${workerId}`,
-					stepRunId: stepRun.id,
-				},
-			);
-			state.completedSteps.set(step.id, {
-				output: result.outputs,
-				status: 'succeeded',
-			});
-			const canceledRun = abortIfCanceled(
-				options.db,
-				run.id,
-				workerId,
-				'canceled_during_step',
-			);
-			if (canceledRun) {
-				return canceledRun;
-			}
-			updateRunCursor(
-				options.db,
-				run.id,
-				workerId,
-				stepIndex + 1,
-				template.steps[stepIndex + 1]?.id ?? null,
-			);
-			stepRuns.push({
-				...stepRun,
-				output_json: safeJsonStringify(result.outputs),
-				status: 'succeeded',
-			});
+		if (!stepResult.shouldContinue) {
 			break;
 		}
 	}
