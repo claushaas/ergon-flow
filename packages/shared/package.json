@@ -3,7 +3,7 @@
 	"name": "@ergon/shared",
 	"scripts": {
 		"build": "tsc --build",
-		"test": "echo shared tests placeholder"
+		"test": "vitest run --passWithNoTests --root ../.. packages/shared/tests"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",

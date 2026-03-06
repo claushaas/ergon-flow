@@ -275,7 +275,7 @@ export function loadTemplatesFromDir(templatesDir: string): LoadedTemplate[] {
 export function loadTemplatesFromWorkspace(
 	rootDir: string = process.cwd(),
 ): LoadedTemplate[] {
-	const templatesDir = path.join(rootDir, 'templates');
+	const templatesDir = path.join(rootDir, 'library', 'workflows');
 	return loadTemplatesFromDir(templatesDir);
 }
 

@@ -1,7 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import type { CliClientOptions, CliSpawn } from '@ergon/clients';
 import type { NotifyStepDefinition } from '@ergon/shared';
-import type { CliClientOptions, CliSpawn } from '../../../clients/src/index.js';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,

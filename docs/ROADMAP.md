@@ -1,7 +1,3 @@
-# ROADMAP
-
-TODO: Fill documentation.
-
 # Ergon Flow — Roadmap
 
 Version: 0.1  
@@ -94,14 +90,13 @@ Order rationale: every scope unlocks the next without backtracking.
 - Create pnpm workspace structure:
   - `packages/cli`
   - `packages/engine`
-  - `packages/executors`
   - `packages/clients`
   - `packages/storage`
   - `packages/shared`
 - Define import boundaries:
   - CLI depends on Engine + Storage
-  - Engine depends on Executors + Storage + Shared
-  - Executors depend on Clients + Shared
+  - Engine depends on Clients + Storage + Shared
+  - Built-in executors live under Engine
   - Clients depend on Shared
 
 ### Phase A2 — Shared contracts - ✅
@@ -175,7 +170,7 @@ Deliverable: a storage-only test can enqueue and claim a run safely with two sim
 
 ### Phase C1 — YAML loader - ✅
 
-- Load YAML templates from `/templates`
+- Load YAML templates from `library/workflows`
 - Normalize template structure (`workflow`, `inputs`, `steps`, `outputs`)
 
 ### Phase C2 — Schema validation (static) - ✅
@@ -375,7 +370,7 @@ Deliverable: at workflow end, user receives a notification to review/merge PR.
 
 v0.0.1 is done when:
 
-- [ ] A template can be loaded and validated from `/templates`
+- [ ] A template can be loaded and validated from `library/workflows`
 - [ ] `ergon run` enqueues a run (`workflow_runs.status=queued`)
 - [ ] Worker claims runs using lease semantics
 - [ ] Engine executes at least `agent` and `exec` end-to-end
