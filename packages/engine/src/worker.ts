@@ -115,6 +115,10 @@ function createWorkerActor(workerId: string): string {
 	return `worker:${workerId}`;
 }
 
+function assertUnreachable(value: never): never {
+	throw new Error(`Unexpected step kind: ${JSON.stringify(value)}`);
+}
+
 function getFailureCodeForStep(step: StepDefinition): ErrorCode {
 	switch (step.kind) {
 		case 'agent':
@@ -128,8 +132,10 @@ function getFailureCodeForStep(step: StepDefinition): ErrorCode {
 			return 'exec_failed';
 		case 'manual':
 			return 'manual_rejected';
-		default:
+		default: {
+			assertUnreachable(step);
 			return 'schema_invalid';
+		}
 	}
 }
 

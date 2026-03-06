@@ -150,8 +150,8 @@ export async function runWorkerCommand(
 		console.log(
 			JSON.stringify({
 				dbPath: commandOptions.dbPath ?? config.dbPath,
-				processed_runs: result.processedRuns,
-				worker_id: result.workerId,
+				processedRuns: result.processedRuns,
+				workerId: result.workerId,
 			}),
 		);
 	} finally {

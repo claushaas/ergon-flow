@@ -311,7 +311,7 @@ Deliverable: a single run is fully replayable from DB state.
 
 ## Scope G — Worker Runtime
 
-### Phase G1 — Worker loop- ✅
+### Phase G1 — Worker loop - ✅
 
 - `ergon worker start`
 - Register/update worker heartbeat
