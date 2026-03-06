@@ -262,9 +262,7 @@ steps:
 			'run.summary',
 		]);
 		expect(log).toHaveBeenCalledWith(
-			'"[ergon-flow] workflow=test.runner run=' +
-				queuedRun.id +
-				' step=notify channel=stdout\\ndone ok"',
+			`"[ergon-flow] workflow=test.runner run=${queuedRun.id} step=notify channel=stdout\\ndone ok"`,
 		);
 		const storedSummary = path.join(rootDir, artifacts[2]?.path ?? '');
 		expect(JSON.parse(readFileSync(storedSummary, 'utf8'))).toEqual({
@@ -542,9 +540,7 @@ steps:
 
 		expect(resumedRun?.status).toBe('succeeded');
 		expect(log).toHaveBeenCalledWith(
-			'"[ergon-flow] workflow=test.manual.resume run=' +
-				queuedRun.id +
-				' step=notify channel=stdout\\napproved"',
+			`"[ergon-flow] workflow=test.manual.resume run=${queuedRun.id} step=notify channel=stdout\\napproved"`,
 		);
 
 		const stepRuns = listStepRuns(db, queuedRun.id);

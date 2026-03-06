@@ -32,6 +32,8 @@ export interface NotifyExecutorOptions {
 	sendWebhook?: NotifyWebhookSender;
 }
 
+const RUN_SUMMARY_ARTIFACT_NAME = 'run.summary';
+
 interface RunSummaryArtifact {
 	channel: string;
 	message: string;
@@ -68,6 +70,14 @@ function formatStableStdoutMessage(summary: RunSummaryArtifact): string {
 		`[ergon-flow] workflow=${summary.workflow_id} run=${summary.run_id} step=${summary.step_id} channel=${summary.channel}`,
 		summary.message,
 	].join('\n');
+}
+
+function createRunSummaryArtifact(summary: RunSummaryArtifact) {
+	return {
+		name: RUN_SUMMARY_ARTIFACT_NAME,
+		type: 'json' as const,
+		value: summary,
+	};
 }
 
 function isBlockedIpAddress(address: string): boolean {
@@ -200,13 +210,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 				const summary = buildRunSummaryArtifact(context, step, payload.message);
 				this.log(sanitizeLoggedMessage(formatStableStdoutMessage(summary)));
 				return {
-					artifacts: [
-						{
-							name: 'run.summary',
-							type: 'json',
-							value: summary,
-						},
-					],
+					artifacts: [createRunSummaryArtifact(summary)],
 					outputs: {
 						...summary,
 					},
@@ -242,13 +246,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 				);
 
 				return {
-					artifacts: [
-						{
-							name: 'run.summary',
-							type: 'json',
-							value: summary,
-						},
-					],
+					artifacts: [createRunSummaryArtifact(summary)],
 					outputs: {
 						...summary,
 						status: result.status,
