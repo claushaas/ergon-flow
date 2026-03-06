@@ -71,11 +71,65 @@ interface FailureMetadata {
 	message: string;
 }
 
+interface PreparedStepExecution {
+	context: ReturnType<typeof createExecutionContext>;
+	request: Record<string, unknown> | undefined;
+	stepAttempt: number;
+	stepRun: ReturnType<typeof createStepRun>;
+}
+
+const MAX_SAFE_JSON_BYTES = 128 * 1024;
+
 function parseJson<T>(value: string | null, fallback: T): T {
 	if (!value) {
 		return fallback;
 	}
 	return JSON.parse(value) as T;
+}
+
+function safeJsonStringify(value: unknown): string | null {
+	if (value === undefined) {
+		return null;
+	}
+
+	const seen = new WeakSet<object>();
+	let serialized: string;
+	try {
+		serialized = JSON.stringify(value, (_key, currentValue) => {
+			if (!currentValue || typeof currentValue !== 'object') {
+				return currentValue;
+			}
+			if (seen.has(currentValue)) {
+				return '[Circular]';
+			}
+			seen.add(currentValue);
+			return currentValue;
+		});
+	} catch {
+		return JSON.stringify('[Unserializable]');
+	}
+
+	if (serialized === undefined) {
+		return null;
+	}
+
+	const bytes = Buffer.byteLength(serialized, 'utf8');
+	if (bytes <= MAX_SAFE_JSON_BYTES) {
+		return serialized;
+	}
+
+	return JSON.stringify({
+		note: 'truncated',
+		size_bytes: bytes,
+	});
+}
+
+function normalizeForStorage(value: unknown): unknown {
+	const serialized = safeJsonStringify(value);
+	if (!serialized) {
+		return value === undefined ? undefined : null;
+	}
+	return JSON.parse(serialized);
 }
 
 function isErrorCode(value: unknown): value is ErrorCode {
@@ -87,6 +141,44 @@ function getStepExecutor(
 	step: StepDefinition,
 ): Executor<StepDefinition> {
 	return executors.get(step.kind);
+}
+
+function prepareStepExecution(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	stepIndex: number,
+	step: StepDefinition,
+	template: WorkflowTemplate,
+	inputs: Record<string, unknown>,
+	artifacts: Record<string, unknown>,
+	stepRuns: ReturnType<typeof listStepRuns>,
+): PreparedStepExecution {
+	const stepAttempt = getStepAttempt(step.id, stepRuns);
+	const context = createExecutionContext({
+		artifacts,
+		inputs,
+		run: {
+			attempt: stepAttempt,
+			runId,
+			stepIndex,
+			workerId,
+			workflowId: template.workflow.id,
+			workflowVersion: template.workflow.version,
+		},
+	});
+	const request = buildRequestSnapshot(step, context);
+	const stepRun = createStepRun(db, runId, step.id, stepAttempt, step.kind, {
+		dependsOn: step.depends_on ?? [],
+		request,
+	});
+
+	return {
+		context,
+		request,
+		stepAttempt,
+		stepRun,
+	};
 }
 
 function getStepAttempt(
@@ -435,7 +527,7 @@ function handleSkippedStep(
 	);
 	options.stepRuns.push({
 		...options.stepRun,
-		output_json: JSON.stringify(options.output),
+		output_json: safeJsonStringify(options.output),
 		status: 'skipped',
 	});
 }
@@ -574,10 +666,10 @@ function markStepRetry(
 ): void {
 	updateStepRunStatus(db, stepRunId, 'failed', {
 		errorCode: failure.code,
-		errorDetail: failure.detail,
+		errorDetail: normalizeForStorage(failure.detail),
 		errorMessage: failure.message,
 		finishedAt: new Date().toISOString(),
-		output,
+		output: normalizeForStorage(output),
 	});
 	appendEvent(
 		db,
@@ -609,6 +701,37 @@ function markStepRetry(
 	);
 }
 
+function recordRetryableFailure(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	stepId: string,
+	stepRun: ReturnType<typeof createStepRun>,
+	stepRuns: ReturnType<typeof listStepRuns>,
+	nextAttempt: number,
+	failure: FailureMetadata,
+	output?: Record<string, unknown>,
+): void {
+	markStepRetry(
+		db,
+		runId,
+		workerId,
+		stepId,
+		stepRun.id,
+		nextAttempt,
+		failure,
+		output,
+	);
+	stepRuns.push({
+		...stepRun,
+		error_code: failure.code,
+		error_detail_json: safeJsonStringify(failure.detail),
+		error_message: failure.message,
+		output_json: safeJsonStringify(output),
+		status: 'failed',
+	});
+}
+
 function markStepFailed(
 	db: DatabaseSync,
 	runId: string,
@@ -622,10 +745,10 @@ function markStepFailed(
 
 	updateStepRunStatus(db, stepRunId, 'failed', {
 		errorCode: failure.code,
-		errorDetail: failure.detail,
+		errorDetail: normalizeForStorage(failure.detail),
 		errorMessage: failure.message,
 		finishedAt: new Date().toISOString(),
-		output,
+		output: normalizeForStorage(output),
 	});
 	appendEvent(
 		db,
@@ -656,7 +779,7 @@ function markStepFailed(
 	);
 	markRunFailed(db, runId, workerId, {
 		errorCode: failure.code,
-		errorDetail: failure.detail,
+		errorDetail: normalizeForStorage(failure.detail),
 		errorMessage: failure.message,
 	});
 	throw error instanceof Error ? error : new Error(failure.message);
@@ -715,30 +838,16 @@ export async function executeRun(
 		updateRunCursor(options.db, run.id, workerId, stepIndex, step.id);
 
 		if (shouldSkipStep(step, state.completedSteps)) {
-			const stepAttempt = getStepAttempt(step.id, stepRuns);
-			const context = createExecutionContext({
-				artifacts: state.artifacts,
-				inputs,
-				run: {
-					attempt: stepAttempt,
-					runId: run.id,
-					stepIndex,
-					workerId,
-					workflowId: template.workflow.id,
-					workflowVersion: template.workflow.version,
-				},
-			});
-			const request = buildRequestSnapshot(step, context);
-			const stepRun = createStepRun(
+			const { stepRun } = prepareStepExecution(
 				options.db,
 				run.id,
-				step.id,
-				stepAttempt,
-				step.kind,
-				{
-					dependsOn: step.depends_on ?? [],
-					request,
-				},
+				workerId,
+				stepIndex,
+				step,
+				template,
+				inputs,
+				state.artifacts,
+				stepRuns,
 			);
 			const skippedOutput = {
 				reason: 'dependency_not_satisfied',
@@ -766,30 +875,16 @@ export async function executeRun(
 		}
 
 		while (true) {
-			const stepAttempt = getStepAttempt(step.id, stepRuns);
-			const context = createExecutionContext({
-				artifacts: state.artifacts,
-				inputs,
-				run: {
-					attempt: stepAttempt,
-					runId: run.id,
-					stepIndex,
-					workerId,
-					workflowId: template.workflow.id,
-					workflowVersion: template.workflow.version,
-				},
-			});
-			const request = buildRequestSnapshot(step, context);
-			const stepRun = createStepRun(
+			const { context, request, stepAttempt, stepRun } = prepareStepExecution(
 				options.db,
 				run.id,
-				step.id,
-				stepAttempt,
-				step.kind,
-				{
-					dependsOn: step.depends_on ?? [],
-					request,
-				},
+				workerId,
+				stepIndex,
+				step,
+				template,
+				inputs,
+				state.artifacts,
+				stepRuns,
 			);
 
 			updateStepRunStatus(options.db, stepRun.id, 'running', {
@@ -820,22 +915,16 @@ export async function executeRun(
 			} catch (error) {
 				const failure = buildFailureMetadata(step, error);
 				if (canRetryStep(step, stepAttempt, failure.code)) {
-					markStepRetry(
+					recordRetryableFailure(
 						options.db,
 						run.id,
 						workerId,
 						step.id,
-						stepRun.id,
+						stepRun,
+						stepRuns,
 						stepAttempt + 1,
 						failure,
 					);
-					stepRuns.push({
-						...stepRun,
-						error_code: failure.code,
-						error_detail_json: JSON.stringify(failure.detail),
-						error_message: failure.message,
-						status: 'failed',
-					});
 					continue;
 				}
 				markStepFailed(options.db, run.id, workerId, step, stepRun.id, error);
@@ -849,24 +938,17 @@ export async function executeRun(
 					new Error(`Step "${step.id}" returned status failed`),
 				);
 				if (canRetryStep(step, stepAttempt, failure.code)) {
-					markStepRetry(
+					recordRetryableFailure(
 						options.db,
 						run.id,
 						workerId,
 						step.id,
-						stepRun.id,
+						stepRun,
+						stepRuns,
 						stepAttempt + 1,
 						failure,
 						result.outputs,
 					);
-					stepRuns.push({
-						...stepRun,
-						error_code: failure.code,
-						error_detail_json: JSON.stringify(failure.detail),
-						error_message: failure.message,
-						output_json: JSON.stringify(result.outputs ?? null),
-						status: 'failed',
-					});
 					continue;
 				}
 				markStepFailed(
@@ -883,7 +965,7 @@ export async function executeRun(
 			if (result.status === 'waiting_manual') {
 				updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
 					finishedAt: new Date().toISOString(),
-					output: result.outputs,
+					output: normalizeForStorage(result.outputs),
 				});
 				markRunWaitingManual(options.db, run.id, workerId);
 				return getRun(options.db, run.id);
@@ -922,7 +1004,7 @@ export async function executeRun(
 			Object.assign(state.artifacts, storedArtifacts);
 			updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
 				finishedAt: new Date().toISOString(),
-				output: result.outputs,
+				output: normalizeForStorage(result.outputs),
 			});
 			appendEvent(
 				options.db,
@@ -950,7 +1032,7 @@ export async function executeRun(
 			);
 			stepRuns.push({
 				...stepRun,
-				output_json: JSON.stringify(result.outputs ?? null),
+				output_json: safeJsonStringify(result.outputs),
 				status: 'succeeded',
 			});
 			break;

@@ -125,6 +125,19 @@ class FailedStatusExecExecutor implements Executor<ExecStepDefinition> {
 	}
 }
 
+class CircularFailedStatusExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+
+	public async execute(): Promise<ExecutorResult> {
+		const outputs: Record<string, unknown> = {};
+		outputs.self = outputs;
+		return {
+			outputs,
+			status: 'failed',
+		};
+	}
+}
+
 afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { force: true, recursive: true });
@@ -830,6 +843,61 @@ steps:
 			'step_failed',
 			'workflow_failed',
 		]);
+
+		db.close();
+	});
+
+	it('does not crash when retry metadata contains circular values', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.retry.circular
+  version: 1
+steps:
+  - id: unstable
+    kind: exec
+    command: "echo retry"
+    retry:
+      max_attempts: 2
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-retry-circular',
+			id: 'test.retry.circular',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.retry.circular',
+			{},
+			{
+				workflowHash: 'hash-retry-circular',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-11', 30_000)?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(queuedRun.id, 'worker-11', {
+				db,
+				executors: new ExecutorRegistry([
+					new CircularFailedStatusExecExecutor(),
+				]),
+				rootDir,
+			}),
+		).rejects.toThrow('returned status failed');
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(2);
+		expect(stepRuns[0]?.output_json).toContain('[Circular]');
 
 		db.close();
 	});
