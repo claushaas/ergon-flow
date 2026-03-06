@@ -71,6 +71,9 @@ steps:
     name: "Analyze bug and code"
     provider: openrouter
     model: deepseek/deepseek-v3.2
+    output:
+      name: analysis
+      type: analysis
     prompt: |
       You are investigating a production bug.
 
@@ -106,6 +109,9 @@ steps:
     name: "Design minimal fix"
     provider: openrouter
     model: moonshotai/kimi-k2.5
+    output:
+      name: design
+      type: plan
     prompt: |
       You are designing a minimal hotfix.
 
@@ -113,7 +119,7 @@ steps:
       {{ inputs.issue }}
 
       Analysis:
-      {{ artifacts.analyze }}
+      {{ artifacts.analysis }}
 
       Constraints:
       {{ inputs.constraints }}
@@ -131,6 +137,9 @@ steps:
     kind: agent
     name: "Generate hotfix patch"
     provider: codex
+    output:
+      name: patch
+      type: text
     prompt: |
       You are a coding agent generating a minimal bugfix.
 
@@ -181,6 +190,9 @@ steps:
     kind: agent
     name: "Review hotfix"
     provider: claude-code
+    output:
+      name: review
+      type: json
     prompt: |
       You are reviewing a production hotfix.
 
@@ -188,7 +200,7 @@ steps:
       {{ inputs.issue }}
 
       Analysis:
-      {{ artifacts.analyze }}
+      {{ artifacts.analysis }}
 
       Fix design:
       {{ artifacts.design }}
@@ -197,7 +209,7 @@ steps:
       {{ artifacts.patch }}
 
       Test results:
-      {{ artifacts.tests_exec }}
+      {{ artifacts.tests.exec.stdout }}
 
       Produce structured JSON with:
 

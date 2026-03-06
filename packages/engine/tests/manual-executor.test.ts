@@ -71,4 +71,36 @@ describe('ManualExecutor (E5)', () => {
 			status: 'waiting_manual',
 		});
 	});
+
+	it('interpolates the manual message before emitting the event payload', async () => {
+		const step: ManualStepDefinition = {
+			id: 'manual.review',
+			kind: 'manual',
+			message:
+				'Approve {{ inputs.environment }} for {{ artifacts.summary.status }}',
+		};
+		const context = createExecutionContext({
+			artifacts: {
+				summary: { status: 'ready' },
+			},
+			inputs: {
+				environment: 'production',
+			},
+			run: {
+				attempt: 1,
+				runId: 'run_3',
+				stepIndex: 4,
+				workflowId: 'deploy.production',
+				workflowVersion: 1,
+			},
+		});
+
+		const result = await executor.execute(step, context);
+
+		expect(result.events?.[0]?.payload).toEqual({
+			message: 'Approve production for ready',
+			runId: 'run_3',
+			stepId: 'manual.review',
+		});
+	});
 });

@@ -343,17 +343,11 @@ export function validateProviderConfig(
 	const normalizedConfig = assertPlainObject(config, `${provider} config`);
 
 	switch (provider) {
-		case 'anthropic':
-		case 'openai':
 		case 'openrouter':
 			if (!isNonEmptyString(normalizedConfig?.apiKey)) {
 				throw new Error(`${provider} apiKey is required`);
 			}
-			if (provider === 'openrouter') {
-				validateOpenRouterBaseUrl(normalizedConfig.baseUrl);
-			} else {
-				validateBaseUrl(normalizedConfig.baseUrl, provider);
-			}
+			validateOpenRouterBaseUrl(normalizedConfig.baseUrl);
 			return;
 		case 'ollama':
 			validateOllamaBaseUrl(normalizedConfig?.baseUrl);

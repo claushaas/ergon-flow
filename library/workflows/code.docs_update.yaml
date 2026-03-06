@@ -66,6 +66,9 @@ steps:
     name: "Analyze documentation and codebase"
     provider: openrouter
     model: deepseek/deepseek-v3.2
+    output:
+      name: analysis
+      type: analysis
     prompt: |
       You are a documentation architect.
 
@@ -97,6 +100,9 @@ steps:
     name: "Plan documentation changes"
     provider: openrouter
     model: moonshotai/kimi-k2.5
+    output:
+      name: plan
+      type: plan
     prompt: |
       Create a documentation update plan.
 
@@ -104,7 +110,7 @@ steps:
       {{ inputs.objective }}
 
       Analysis:
-      {{ artifacts.analyze }}
+      {{ artifacts.analysis }}
 
       Constraints:
       {{ inputs.constraints }}
@@ -121,6 +127,9 @@ steps:
     kind: agent
     name: "Generate documentation updates"
     provider: claude-code
+    output:
+      name: generate
+      type: text
     prompt: |
       You are a senior technical writer.
 
@@ -172,6 +181,9 @@ steps:
     name: "Review documentation changes"
     provider: openrouter
     model: moonshotai/kimi-k2.5
+    output:
+      name: review
+      type: json
     prompt: |
       You are reviewing documentation updates.
 
@@ -185,7 +197,7 @@ steps:
       {{ artifacts.generate }}
 
       Validation output:
-      {{ artifacts.docs_validate }}
+      {{ artifacts.docs.validate.stdout }}
 
       Produce structured JSON with keys:
 

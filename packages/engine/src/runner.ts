@@ -46,6 +46,7 @@ import {
 	interpolateTemplateString,
 	loadAndValidateTemplateFromFile,
 	renderStepRequestPayload,
+	resolveTemplateReference,
 } from './templating/index.js';
 import { assertWorkflowTemplateIdentity } from './workflowIdentity.js';
 
@@ -444,7 +445,10 @@ function buildRequestSnapshot(
 			};
 		case 'manual':
 			return {
-				message: step.message?.trim() || undefined,
+				message: renderStepRequestPayload(step, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				}).message,
 			};
 		case 'notify':
 			return {
@@ -452,7 +456,10 @@ function buildRequestSnapshot(
 					artifacts: context.artifacts,
 					inputs: context.inputs,
 				}),
-				channel: step.channel,
+				channel: interpolateTemplateString(step.channel, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				}),
 				target: step.target
 					? interpolateTemplateString(step.target, {
 							artifacts: context.artifacts,
@@ -630,32 +637,6 @@ function handleSkippedStep(
 	return true;
 }
 
-function resolveReferenceValue(
-	reference: string,
-	inputs: Record<string, unknown>,
-	artifacts: Record<string, unknown>,
-): unknown {
-	const [root, ...pathParts] = reference.trim().split('.');
-	const source =
-		root === 'inputs' ? inputs : root === 'artifacts' ? artifacts : null;
-	if (!source || pathParts.length === 0) {
-		throw new Error(`Unsupported workflow output reference "${reference}"`);
-	}
-
-	let current: unknown = source;
-	for (const part of pathParts) {
-		if (!current || typeof current !== 'object' || Array.isArray(current)) {
-			throw new Error(`Workflow output reference "${reference}" was not found`);
-		}
-		current = (current as Record<string, unknown>)[part];
-		if (current === undefined) {
-			throw new Error(`Workflow output reference "${reference}" was not found`);
-		}
-	}
-
-	return current;
-}
-
 function resolveWorkflowOutputs(
 	template: WorkflowTemplate,
 	inputs: Record<string, unknown>,
@@ -665,9 +646,16 @@ function resolveWorkflowOutputs(
 	const resolved: Record<string, unknown> = {};
 
 	for (const [key, value] of Object.entries(outputs)) {
+		if (/^(artifacts|inputs)\./.test(value.trim())) {
+			resolved[key] = resolveTemplateReference(value, { artifacts, inputs });
+			continue;
+		}
 		const exactMatch = value.match(EXACT_INTERPOLATION_PATTERN);
 		if (exactMatch?.[1]) {
-			resolved[key] = resolveReferenceValue(exactMatch[1], inputs, artifacts);
+			resolved[key] = resolveTemplateReference(exactMatch[1], {
+				artifacts,
+				inputs,
+			});
 			continue;
 		}
 

@@ -78,6 +78,55 @@ describe('NotifyExecutor (E6)', () => {
 		});
 	});
 
+	it('interpolates the notify channel before dispatching', async () => {
+		const step: NotifyStepDefinition = {
+			channel: '{{ inputs.notify.channel }}',
+			id: 'notify.dynamic',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+			target: '{{ inputs.webhook_url }}',
+		};
+		const context = createExecutionContext({
+			artifacts: {
+				summary: {
+					status: 'passed',
+				},
+			},
+			inputs: {
+				notify: { channel: 'webhook' },
+				repo: 'ergon-flow',
+				webhook_url: 'https://example.test/hooks/notify',
+			},
+			run: {
+				attempt: 1,
+				runId: 'run_2',
+				stepIndex: 5,
+				workflowId: 'code.refactor',
+				workflowVersion: 1,
+			},
+		});
+		const sendWebhookMock = vi.fn().mockResolvedValue({ status: 204 });
+		const dynamicExecutor = new NotifyExecutor({
+			resolveHostname: resolveHostnameMock,
+			sendWebhook: sendWebhookMock,
+		});
+
+		const result = await dynamicExecutor.execute(step, context);
+
+		expect(sendWebhookMock).toHaveBeenCalledWith({
+			channel: 'webhook',
+			message: 'run ergon-flow',
+			runId: 'run_2',
+			stepId: 'notify.dynamic',
+			target: 'https://example.test/hooks/notify',
+			workflowId: 'code.refactor',
+		});
+		expect(result.outputs).toMatchObject({
+			channel: 'webhook',
+			status: 204,
+		});
+	});
+
 	it('sends webhook notifications with interpolated message and target', async () => {
 		const sendWebhookMock = vi.fn().mockResolvedValue({
 			status: 202,

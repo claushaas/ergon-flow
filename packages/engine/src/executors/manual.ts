@@ -1,4 +1,5 @@
 import type { ManualStepDefinition } from '@ergon/shared';
+import { renderStepRequestPayload } from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 
 export class ManualExecutor implements Executor<ManualStepDefinition> {
@@ -8,7 +9,11 @@ export class ManualExecutor implements Executor<ManualStepDefinition> {
 		step: ManualStepDefinition,
 		context: ExecutionContext,
 	): Promise<ExecutorResult> {
-		const message = step.message?.trim() || undefined;
+		const message =
+			renderStepRequestPayload(step, {
+				artifacts: context.artifacts,
+				inputs: context.inputs,
+			}).message ?? undefined;
 		const payload = {
 			runId: context.run.runId,
 			stepId: step.id,

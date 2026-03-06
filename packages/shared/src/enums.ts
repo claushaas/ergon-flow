@@ -13,12 +13,7 @@ export type StepKind = (typeof STEP_KINDS)[number];
 
 // ─── Providers ───────────────────────────────────────────────────────────────
 
-export const MODEL_PROVIDERS = [
-	'anthropic',
-	'ollama',
-	'openai',
-	'openrouter',
-] as const;
+export const MODEL_PROVIDERS = ['ollama', 'openrouter'] as const;
 
 export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 
