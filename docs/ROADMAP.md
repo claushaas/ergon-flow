@@ -333,7 +333,7 @@ Deliverable: kill -9 worker mid-run, restart worker, run resumes deterministical
 
 ## Scope H — CLI (user-facing commands)
 
-### Phase H1 — Core commands
+### Phase H1 — Core commands - ✅
 
 - `ergon template list`
 - `ergon workflow list`

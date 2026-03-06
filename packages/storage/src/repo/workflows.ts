@@ -30,6 +30,15 @@ export function getWorkflow(
 	return (row as WorkflowRow | undefined) ?? null;
 }
 
+export function listWorkflows(db: DatabaseSync): WorkflowRow[] {
+	return db
+		.prepare(
+			`SELECT * FROM workflows
+			 ORDER BY id ASC, version DESC;`,
+		)
+		.all() as unknown as WorkflowRow[];
+}
+
 export function registerWorkflow(
 	db: DatabaseSync,
 	input: RegisterWorkflowInput,
