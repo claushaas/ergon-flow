@@ -327,6 +327,23 @@ describe('NotifyExecutor (E6)', () => {
 		);
 	});
 
+	it('rejects openclaw targets that start with a hyphen', async () => {
+		const executor = new NotifyExecutor({
+			sendOpenClawMessage: vi.fn(),
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'openclaw',
+			id: 'notify.openclaw',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+			target: '--help',
+		};
+
+		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
+			'Notify step "notify.openclaw" target cannot start with a hyphen',
+		);
+	});
+
 	it('rejects notifications with an empty message', async () => {
 		const executor = new NotifyExecutor({
 			log: logMock,

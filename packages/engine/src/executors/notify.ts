@@ -361,6 +361,11 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					artifacts: context.artifacts,
 					inputs: context.inputs,
 				});
+				if (target.startsWith('-')) {
+					throw new Error(
+						`Notify step "${step.id}" target cannot start with a hyphen`,
+					);
+				}
 				await this.sendOpenClawMessage({
 					message: payload.message,
 					target,
