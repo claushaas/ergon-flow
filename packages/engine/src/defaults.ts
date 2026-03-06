@@ -8,7 +8,10 @@ import { ConditionExecutor } from './executors/condition.js';
 import { ExecExecutor, type ExecExecutorOptions } from './executors/exec.js';
 import { ExecutorRegistry } from './executors/index.js';
 import { ManualExecutor } from './executors/manual.js';
-import { NotifyExecutor, type NotifyExecutorOptions } from './executors/notify.js';
+import {
+	NotifyExecutor,
+	type NotifyExecutorOptions,
+} from './executors/notify.js';
 
 export interface CreateDefaultExecutorRegistryOptions {
 	exec?: ExecExecutorOptions;

@@ -13,6 +13,7 @@ function readStringEnv(name: string): string | undefined {
 
 export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 	const rootDir = path.resolve(readStringEnv('ERGON_ROOT_DIR') ?? cwd);
+	const openRouterApiKey = readStringEnv('OPENROUTER_API_KEY');
 
 	return {
 		dbPath: path.resolve(
@@ -49,9 +50,9 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 							command: readStringEnv('OPENCLAW_COMMAND'),
 						}
 					: undefined,
-			openrouter: readStringEnv('OPENROUTER_API_KEY')
+			openrouter: openRouterApiKey
 				? {
-						apiKey: readStringEnv('OPENROUTER_API_KEY')!,
+						apiKey: openRouterApiKey,
 						appName: readStringEnv('OPENROUTER_APP_NAME'),
 						baseUrl: readStringEnv('OPENROUTER_BASE_URL'),
 						defaultModel: readStringEnv('OPENROUTER_MODEL'),

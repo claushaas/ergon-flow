@@ -10,8 +10,8 @@ import {
 	renewLease,
 	type WorkflowRunRow,
 } from '@ergon/storage';
-import { executeRun } from './runner.js';
 import type { ExecutorRegistry } from './executors/index.js';
+import { executeRun } from './runner.js';
 
 export interface StartWorkerOptions {
 	artifactBaseDir?: string;
@@ -47,7 +47,10 @@ function delay(ms: number): Promise<void> {
 	});
 }
 
-function normalizeInterval(value: number | undefined, fallback: number): number {
+function normalizeInterval(
+	value: number | undefined,
+	fallback: number,
+): number {
 	if (value === undefined) {
 		return fallback;
 	}
@@ -84,9 +87,7 @@ function createWorkerActor(workerId: string): string {
 }
 
 function startHeartbeatLoop(
-	options: Required<
-		Pick<StartWorkerOptions, 'db' | 'workerId'>
-	> & {
+	options: Required<Pick<StartWorkerOptions, 'db' | 'workerId'>> & {
 		heartbeatIntervalMs: number;
 		hostname: string;
 		metadata?: Record<string, unknown>;

@@ -27,7 +27,10 @@ export interface HeartbeatWorkerInput {
 	pid?: number;
 }
 
-export function getWorker(db: DatabaseSync, workerId: string): WorkerRow | null {
+export function getWorker(
+	db: DatabaseSync,
+	workerId: string,
+): WorkerRow | null {
 	const row = db.prepare('SELECT * FROM workers WHERE id = ?;').get(workerId);
 	return (row as WorkerRow | undefined) ?? null;
 }
