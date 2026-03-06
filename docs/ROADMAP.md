@@ -276,9 +276,9 @@ Deliverable: engine can execute a workflow with `agent + exec + condition + manu
 
 ---
 
-## Scope F — Workflow Engine (sequential runner)
+## Scope F — Workflow Engine (sequential runner) - ✅
 
-### Phase F1 — Engine core loop
+### Phase F1 — Engine core loop - ✅
 
 - `executeRun(run_id, worker_id)`
 - Load run + workflow template
@@ -294,13 +294,13 @@ Deliverable: engine can execute a workflow with `agent + exec + condition + manu
   - append events
   - advance cursor
 
-### Phase F2 — Retry handling
+### Phase F2 — Retry handling - ✅
 
 - Per-step retry (attempt increments)
 - Failure categorization
 - Stop on terminal errors
 
-### Phase F3 — Cancellation check
+### Phase F3 — Cancellation check - ✅
 
 - Before each step, check run status
 - Abort cleanly if `canceled`

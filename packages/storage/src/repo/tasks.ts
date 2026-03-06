@@ -211,6 +211,16 @@ export function listRuns(
 		.all(...params, limit, offset) as unknown as WorkflowRunRow[];
 }
 
+export function listStepRuns(db: DatabaseSync, runId: string): StepRunRow[] {
+	return db
+		.prepare(
+			`SELECT * FROM step_runs
+			 WHERE run_id = ?
+			 ORDER BY created_at ASC, attempt ASC, id ASC;`,
+		)
+		.all(runId) as unknown as StepRunRow[];
+}
+
 export function createStepRun(
 	db: DatabaseSync,
 	runId: string,
@@ -368,6 +378,30 @@ export function renewLease(
 			 RETURNING *;`,
 		)
 		.get(leaseUntil, now, runId, workerId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function updateRunCursor(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	currentStepIndex: number,
+	currentStepId: string | null,
+): WorkflowRunRow | null {
+	const now = new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET current_step_index = ?,
+			     current_step_id = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND status = 'running'
+			 RETURNING *;`,
+		)
+		.get(currentStepIndex, currentStepId, now, runId, workerId);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
