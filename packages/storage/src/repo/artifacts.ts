@@ -72,3 +72,13 @@ export function insertArtifact(
 		`Failed to load artifact ${artifactId} after insert`,
 	);
 }
+
+export function listArtifacts(db: DatabaseSync, runId: string): ArtifactRow[] {
+	return db
+		.prepare(
+			`SELECT * FROM artifacts
+			 WHERE run_id = ?
+			 ORDER BY created_at ASC, id ASC;`,
+		)
+		.all(runId) as unknown as ArtifactRow[];
+}
