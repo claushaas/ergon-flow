@@ -92,6 +92,52 @@ class MaliciousArtifactExecutor implements Executor<ExecStepDefinition> {
 	}
 }
 
+class FlakyExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+	private attempts = 0;
+
+	public async execute(): Promise<ExecutorResult> {
+		this.attempts += 1;
+		if (this.attempts === 1) {
+			throw new Error('transient boom');
+		}
+		return {
+			outputs: {
+				attempts: this.attempts,
+			},
+			status: 'succeeded',
+		};
+	}
+}
+
+class FailedStatusExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+	private attempts = 0;
+
+	public async execute(): Promise<ExecutorResult> {
+		this.attempts += 1;
+		return {
+			outputs: {
+				attempts: this.attempts,
+			},
+			status: 'failed',
+		};
+	}
+}
+
+class CircularFailedStatusExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+
+	public async execute(): Promise<ExecutorResult> {
+		const outputs: Record<string, unknown> = {};
+		outputs.self = outputs;
+		return {
+			outputs,
+			status: 'failed',
+		};
+	}
+}
+
 afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { force: true, recursive: true });
@@ -588,6 +634,270 @@ steps:
 			['build', 'failed'],
 			['notify', 'skipped'],
 		]);
+
+		db.close();
+	});
+
+	it('retries a step and succeeds on a later attempt', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.retry.success
+  version: 1
+steps:
+  - id: flaky
+    kind: exec
+    command: "echo retry"
+    retry:
+      max_attempts: 2
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-retry-success',
+			id: 'test.retry.success',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.retry.success',
+			{},
+			{
+				workflowHash: 'hash-retry-success',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-8', 30_000)?.id).toBe(queuedRun.id);
+
+		const finishedRun = await executeRun(queuedRun.id, 'worker-8', {
+			db,
+			executors: new ExecutorRegistry([new FlakyExecExecutor()]),
+			rootDir,
+		});
+
+		expect(finishedRun?.status).toBe('succeeded');
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(
+			stepRuns.map((stepRun) => [
+				stepRun.step_id,
+				stepRun.attempt,
+				stepRun.status,
+				stepRun.error_code,
+			]),
+		).toEqual([
+			['flaky', 1, 'failed', 'exec_failed'],
+			['flaky', 2, 'succeeded', null],
+		]);
+
+		const eventRows = db
+			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
+			.all(queuedRun.id) as Array<{ type: string }>;
+		expect(eventRows.map((event) => event.type)).toEqual([
+			'step_started',
+			'step_failed',
+			'step_retry',
+			'step_started',
+			'step_succeeded',
+			'workflow_succeeded',
+		]);
+
+		db.close();
+	});
+
+	it('does not retry when the failure category is not allowed', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.retry.filtered
+  version: 1
+steps:
+  - id: flaky
+    kind: exec
+    command: "echo retry"
+    retry:
+      max_attempts: 3
+      on: [provider_error]
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-retry-filtered',
+			id: 'test.retry.filtered',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.retry.filtered',
+			{},
+			{
+				workflowHash: 'hash-retry-filtered',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-9', 30_000)?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(queuedRun.id, 'worker-9', {
+				db,
+				executors: new ExecutorRegistry([new ThrowingExecExecutor()]),
+				rootDir,
+			}),
+		).rejects.toThrow('boom:flaky');
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(1);
+		expect(stepRuns[0]?.attempt).toBe(1);
+		expect(stepRuns[0]?.error_code).toBe('exec_failed');
+
+		db.close();
+	});
+
+	it('fails after exhausting max_attempts for failed executor results', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.retry.exhausted
+  version: 1
+steps:
+  - id: unstable
+    kind: exec
+    command: "echo retry"
+    retry:
+      max_attempts: 2
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-retry-exhausted',
+			id: 'test.retry.exhausted',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.retry.exhausted',
+			{},
+			{
+				workflowHash: 'hash-retry-exhausted',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-10', 30_000)?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(queuedRun.id, 'worker-10', {
+				db,
+				executors: new ExecutorRegistry([new FailedStatusExecExecutor()]),
+				rootDir,
+			}),
+		).rejects.toThrow('returned status failed');
+
+		const failedRun = db
+			.prepare('SELECT status, error_code FROM workflow_runs WHERE id = ?;')
+			.get(queuedRun.id) as { error_code: string; status: string };
+		expect(failedRun).toEqual({
+			error_code: 'exec_failed',
+			status: 'failed',
+		});
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(
+			stepRuns.map((stepRun) => [
+				stepRun.attempt,
+				stepRun.status,
+				stepRun.error_code,
+			]),
+		).toEqual([
+			[1, 'failed', 'exec_failed'],
+			[2, 'failed', 'exec_failed'],
+		]);
+
+		const eventRows = db
+			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
+			.all(queuedRun.id) as Array<{ type: string }>;
+		expect(eventRows.map((event) => event.type)).toEqual([
+			'step_started',
+			'step_failed',
+			'step_retry',
+			'step_started',
+			'step_failed',
+			'workflow_failed',
+		]);
+
+		db.close();
+	});
+
+	it('does not crash when retry metadata contains circular values', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.retry.circular
+  version: 1
+steps:
+  - id: unstable
+    kind: exec
+    command: "echo retry"
+    retry:
+      max_attempts: 2
+`,
+		);
+
+		registerWorkflow(db, {
+			hash: 'hash-retry-circular',
+			id: 'test.retry.circular',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.retry.circular',
+			{},
+			{
+				workflowHash: 'hash-retry-circular',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-11', 30_000)?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(queuedRun.id, 'worker-11', {
+				db,
+				executors: new ExecutorRegistry([
+					new CircularFailedStatusExecExecutor(),
+				]),
+				rootDir,
+			}),
+		).rejects.toThrow('returned status failed');
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(2);
+		expect(stepRuns[0]?.output_json).toContain('[Circular]');
 
 		db.close();
 	});
