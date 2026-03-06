@@ -163,7 +163,7 @@ describe('claim and lease primitives (B3)', () => {
 			'worker-1',
 			succeedClaim?.claim_epoch ?? 1,
 			{
-			result: { ok: true },
+				result: { ok: true },
 			},
 		);
 		expect(succeeded?.status).toBe('succeeded');
@@ -200,9 +200,9 @@ describe('claim and lease primitives (B3)', () => {
 			'worker-1',
 			failedClaim?.claim_epoch ?? 1,
 			{
-			errorCode: 'provider_error',
-			errorDetail: { detail: 'network timeout' },
-			errorMessage: 'provider failed',
+				errorCode: 'provider_error',
+				errorDetail: { detail: 'network timeout' },
+				errorMessage: 'provider failed',
 			},
 		);
 		expect(failed?.status).toBe('failed');

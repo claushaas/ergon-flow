@@ -16,9 +16,9 @@ import {
 	artifactsDir,
 	assertSafeSegment,
 	createStepRun,
-	getRunForClaim,
 	getLatestEventForStepRun,
 	getRun,
+	getRunForClaim,
 	getWaitingManualStepRun,
 	getWorkflow,
 	insertArtifact,
@@ -27,11 +27,11 @@ import {
 	markRunFailed,
 	markRunSucceeded,
 	markRunWaitingManual,
+	type RunClaim,
+	type StepRunRow,
 	updateRunCursor,
 	updateStepRunStatus,
 	withRunClaim,
-	type RunClaim,
-	type StepRunRow,
 } from '@ergon/storage';
 import type {
 	Executor,
@@ -47,6 +47,7 @@ import {
 	loadAndValidateTemplateFromFile,
 	renderStepRequestPayload,
 } from './templating/index.js';
+import { assertWorkflowTemplateIdentity } from './workflowIdentity.js';
 
 const EXACT_INTERPOLATION_PATTERN = /^{{\s*([^{}]+?)\s*}}$/;
 const ERROR_CODE_SET: ReadonlySet<string> = new Set(ERROR_CODES);
@@ -330,23 +331,6 @@ function resolvePathWithinBase(
 	}
 
 	return resolvedPath;
-}
-
-function hashFileContent(filePath: string): string {
-	return createHash('sha256').update(readFileSync(filePath)).digest('hex');
-}
-
-function assertWorkflowTemplateIdentity(
-	templatePath: string,
-	expectedHash: string,
-	runId: string,
-): void {
-	const currentHash = hashFileContent(templatePath);
-	if (currentHash !== expectedHash) {
-		throw new Error(
-			`Workflow run "${runId}" cannot execute because the registered workflow source changed after scheduling`,
-		);
-	}
 }
 
 function restoreArtifacts(
@@ -1047,34 +1031,39 @@ function resumeApprovedManualStep(
 		approved_by: approvalEvent.actor,
 		decision: 'approve',
 	};
-	const completed = withRunClaim(options.db, options.runId, options.claim, () => {
-		updateStepRunStatus(options.db, waitingStepRun.id, 'succeeded', {
-			finishedAt: approvalEvent.ts,
-			output: approvalOutput,
-		});
-		appendEventInTransaction(
-			options.db,
-			options.runId,
-			'step_succeeded',
-			{
-				artifact_names: [],
-				step_id: options.step.id,
-			},
-			{
-				actor: `worker:${options.claim.workerId}`,
-				stepRunId: waitingStepRun.id,
-			},
-		);
-		updateRunCursor(
-			options.db,
-			options.runId,
-			options.claim.workerId,
-			options.claim.claimEpoch,
-			options.stepIndex + 1,
-			options.template.steps[options.stepIndex + 1]?.id ?? null,
-		);
-		return true;
-	});
+	const completed = withRunClaim(
+		options.db,
+		options.runId,
+		options.claim,
+		() => {
+			updateStepRunStatus(options.db, waitingStepRun.id, 'succeeded', {
+				finishedAt: approvalEvent.ts,
+				output: approvalOutput,
+			});
+			appendEventInTransaction(
+				options.db,
+				options.runId,
+				'step_succeeded',
+				{
+					artifact_names: [],
+					step_id: options.step.id,
+				},
+				{
+					actor: `worker:${options.claim.workerId}`,
+					stepRunId: waitingStepRun.id,
+				},
+			);
+			updateRunCursor(
+				options.db,
+				options.runId,
+				options.claim.workerId,
+				options.claim.claimEpoch,
+				options.stepIndex + 1,
+				options.template.steps[options.stepIndex + 1]?.id ?? null,
+			);
+			return true;
+		},
+	);
 	if (!completed) {
 		throw new Error(
 			`Workflow run "${options.runId}" lost claim ownership while resuming manual step "${options.step.id}"`,
@@ -1162,15 +1151,19 @@ async function executeStep(
 			output: skippedOutput,
 			status: 'skipped',
 		});
-		const skipped = handleSkippedStep(options.db, options.claim, {
-			output: skippedOutput,
-			runId: options.runId,
-			step: options.step,
-			stepRun,
-			stepRuns: options.stepRuns,
-		},
-		options.stepIndex + 1,
-		options.template.steps[options.stepIndex + 1]?.id ?? null);
+		const skipped = handleSkippedStep(
+			options.db,
+			options.claim,
+			{
+				output: skippedOutput,
+				runId: options.runId,
+				step: options.step,
+				stepRun,
+				stepRuns: options.stepRuns,
+			},
+			options.stepIndex + 1,
+			options.template.steps[options.stepIndex + 1]?.id ?? null,
+		);
 		if (!skipped) {
 			throw new Error(
 				`Workflow run "${options.runId}" lost claim ownership before skipping step "${options.step.id}"`,
@@ -1289,26 +1282,31 @@ async function executeStep(
 					shouldContinue: false,
 				};
 			}
-			const paused = withRunClaim(options.db, options.runId, options.claim, () => {
-				appendStepEventsInTransaction(
-					options.db,
-					options.runId,
-					stepRun.id,
-					options.claim.workerId,
-					result.events,
-				);
-				updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
-					finishedAt: new Date().toISOString(),
-					output: normalizeForStorage(result.outputs),
-				});
-				markRunWaitingManual(
-					options.db,
-					options.runId,
-					options.claim.workerId,
-					options.claim.claimEpoch,
-				);
-				return true;
-			});
+			const paused = withRunClaim(
+				options.db,
+				options.runId,
+				options.claim,
+				() => {
+					appendStepEventsInTransaction(
+						options.db,
+						options.runId,
+						stepRun.id,
+						options.claim.workerId,
+						result.events,
+					);
+					updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
+						finishedAt: new Date().toISOString(),
+						output: normalizeForStorage(result.outputs),
+					});
+					markRunWaitingManual(
+						options.db,
+						options.runId,
+						options.claim.workerId,
+						options.claim.claimEpoch,
+					);
+					return true;
+				},
+			);
 			if (!paused) {
 				throw new Error(
 					`Workflow run "${options.runId}" lost claim ownership before pausing manual step "${options.step.id}"`,
@@ -1326,15 +1324,19 @@ async function executeStep(
 				output: skippedOutput,
 				status: 'skipped',
 			});
-			const skipped = handleSkippedStep(options.db, options.claim, {
-				output: skippedOutput,
-				runId: options.runId,
-				step: options.step,
-				stepRun,
-				stepRuns: options.stepRuns,
-			},
-			options.stepIndex + 1,
-			options.template.steps[options.stepIndex + 1]?.id ?? null);
+			const skipped = handleSkippedStep(
+				options.db,
+				options.claim,
+				{
+					output: skippedOutput,
+					runId: options.runId,
+					step: options.step,
+					stepRun,
+					stepRuns: options.stepRuns,
+				},
+				options.stepIndex + 1,
+				options.template.steps[options.stepIndex + 1]?.id ?? null,
+			);
 			if (!skipped) {
 				const canceledAfterLoss = abortIfCanceled(
 					options.db,
@@ -1409,41 +1411,46 @@ async function executeStep(
 			stepRun.id,
 			result.artifacts ?? [],
 		);
-		const completed = withRunClaim(options.db, options.runId, options.claim, () => {
-			appendStepEventsInTransaction(
-				options.db,
-				options.runId,
-				stepRun.id,
-				options.claim.workerId,
-				result.events,
-			);
-			updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
-				finishedAt: new Date().toISOString(),
-				output: normalizeForStorage(result.outputs),
-			});
-			appendEventInTransaction(
-				options.db,
-				options.runId,
-				'step_succeeded',
-				{
-					artifact_names: Object.keys(storedArtifacts),
-					step_id: options.step.id,
-				},
-				{
-					actor: `worker:${options.claim.workerId}`,
-					stepRunId: stepRun.id,
-				},
-			);
-			updateRunCursor(
-				options.db,
-				options.runId,
-				options.claim.workerId,
-				options.claim.claimEpoch,
-				options.stepIndex + 1,
-				options.template.steps[options.stepIndex + 1]?.id ?? null,
-			);
-			return true;
-		});
+		const completed = withRunClaim(
+			options.db,
+			options.runId,
+			options.claim,
+			() => {
+				appendStepEventsInTransaction(
+					options.db,
+					options.runId,
+					stepRun.id,
+					options.claim.workerId,
+					result.events,
+				);
+				updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
+					finishedAt: new Date().toISOString(),
+					output: normalizeForStorage(result.outputs),
+				});
+				appendEventInTransaction(
+					options.db,
+					options.runId,
+					'step_succeeded',
+					{
+						artifact_names: Object.keys(storedArtifacts),
+						step_id: options.step.id,
+					},
+					{
+						actor: `worker:${options.claim.workerId}`,
+						stepRunId: stepRun.id,
+					},
+				);
+				updateRunCursor(
+					options.db,
+					options.runId,
+					options.claim.workerId,
+					options.claim.claimEpoch,
+					options.stepIndex + 1,
+					options.template.steps[options.stepIndex + 1]?.id ?? null,
+				);
+				return true;
+			},
+		);
 		if (!completed) {
 			const canceledAfterLoss = abortIfCanceled(
 				options.db,
@@ -1539,7 +1546,11 @@ export async function executeRun(
 		workflow.source_path,
 		'workflow source_path',
 	);
-	assertWorkflowTemplateIdentity(templatePath, run.workflow_hash, run.id);
+	assertWorkflowTemplateIdentity(
+		templatePath,
+		run.workflow_hash,
+		`Workflow run "${run.id}" cannot execute because the registered workflow source changed after scheduling`,
+	);
 	const { template } = loadAndValidateTemplateFromFile(templatePath);
 	const inputs = parseJson<Record<string, unknown>>(run.inputs_json, {});
 	const state = resolveRunState(artifactBaseDir, template, run, options.db);
@@ -1559,6 +1570,7 @@ export async function executeRun(
 
 		const stepResult = await executeStep({
 			artifactBaseDir,
+			claim,
 			db: options.db,
 			executors: options.executors,
 			inputs,
@@ -1568,7 +1580,6 @@ export async function executeRun(
 			stepIndex,
 			stepRuns,
 			template,
-			claim,
 		});
 		if (stepResult.canceledRun) {
 			return stepResult.canceledRun;

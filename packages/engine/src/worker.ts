@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { hostname as resolveHostname } from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -24,6 +22,7 @@ import {
 import type { ExecutorRegistry } from './executors/index.js';
 import { executeRun } from './runner.js';
 import { loadAndValidateTemplateFromFile } from './templating/index.js';
+import { assertWorkflowTemplateIdentity } from './workflowIdentity.js';
 
 export interface StartWorkerOptions {
 	artifactBaseDir?: string;
@@ -182,14 +181,11 @@ function loadTemplateForRun(
 		workflow.source_path,
 		'workflow source_path',
 	);
-	const currentHash = createHash('sha256')
-		.update(readFileSync(templatePath))
-		.digest('hex');
-	if (currentHash !== run.workflow_hash) {
-		throw new Error(
-			`Workflow run "${run.id}" cannot execute because the workflow source changed after scheduling`,
-		);
-	}
+	assertWorkflowTemplateIdentity(
+		templatePath,
+		run.workflow_hash,
+		`Workflow run "${run.id}" cannot execute because the workflow source changed after scheduling`,
+	);
 
 	return loadAndValidateTemplateFromFile(templatePath).template;
 }
@@ -414,10 +410,10 @@ async function executeClaimedRun(
 				workerId: options.workerId,
 			},
 			{
-			artifactBaseDir: options.artifactBaseDir,
-			db: options.db,
-			executors: options.executors,
-			rootDir: options.rootDir,
+				artifactBaseDir: options.artifactBaseDir,
+				db: options.db,
+				executors: options.executors,
+				rootDir: options.rootDir,
 			},
 		);
 	} catch (error) {
