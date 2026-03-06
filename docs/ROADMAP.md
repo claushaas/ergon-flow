@@ -356,7 +356,7 @@ Deliverable: complete user flow from scheduling to approval to completion.
 
 ## Scope I — Notifying “PR ready” (v0.0.1 requirement)
 
-### Phase I1 — Local notification
+### Phase I1 — Local notification - ✅
 
 - Always emit a `notify` step at end of templates:
   - prints a stable message to stdout

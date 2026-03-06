@@ -32,8 +32,42 @@ export interface NotifyExecutorOptions {
 	sendWebhook?: NotifyWebhookSender;
 }
 
+interface RunSummaryArtifact {
+	channel: string;
+	message: string;
+	run_id: string;
+	step_id: string;
+	target?: string;
+	workflow_id: string;
+	workflow_version: number;
+}
+
 function sanitizeLoggedMessage(message: string): string {
 	return JSON.stringify(message.replaceAll('\u0000', ''));
+}
+
+function buildRunSummaryArtifact(
+	context: ExecutionContext,
+	step: NotifyStepDefinition,
+	message: string,
+	target?: string,
+): RunSummaryArtifact {
+	return {
+		channel: step.channel,
+		message,
+		run_id: context.run.runId,
+		step_id: step.id,
+		...(target ? { target } : {}),
+		workflow_id: context.run.workflowId,
+		workflow_version: context.run.workflowVersion,
+	};
+}
+
+function formatStableStdoutMessage(summary: RunSummaryArtifact): string {
+	return [
+		`[ergon-flow] workflow=${summary.workflow_id} run=${summary.run_id} step=${summary.step_id} channel=${summary.channel}`,
+		summary.message,
+	].join('\n');
 }
 
 function isBlockedIpAddress(address: string): boolean {
@@ -162,15 +196,23 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 		}
 
 		switch (step.channel) {
-			case 'stdout':
-				this.log(sanitizeLoggedMessage(payload.message));
+			case 'stdout': {
+				const summary = buildRunSummaryArtifact(context, step, payload.message);
+				this.log(sanitizeLoggedMessage(formatStableStdoutMessage(summary)));
 				return {
+					artifacts: [
+						{
+							name: 'run.summary',
+							type: 'json',
+							value: summary,
+						},
+					],
 					outputs: {
-						channel: step.channel,
-						message: payload.message,
+						...summary,
 					},
 					status: 'succeeded',
 				};
+			}
 			case 'webhook': {
 				if (!step.target) {
 					throw new Error(`Notify step "${step.id}" requires a target`);
@@ -192,13 +234,24 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					target: validatedTarget.toString(),
 					workflowId: context.run.workflowId,
 				});
+				const summary = buildRunSummaryArtifact(
+					context,
+					step,
+					payload.message,
+					validatedTarget.toString(),
+				);
 
 				return {
+					artifacts: [
+						{
+							name: 'run.summary',
+							type: 'json',
+							value: summary,
+						},
+					],
 					outputs: {
-						channel: step.channel,
-						message: payload.message,
+						...summary,
 						status: result.status,
-						target: validatedTarget.toString(),
 					},
 					status: 'succeeded',
 				};
