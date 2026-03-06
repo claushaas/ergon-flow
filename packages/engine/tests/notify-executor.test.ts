@@ -48,11 +48,31 @@ describe('NotifyExecutor (E6)', () => {
 
 		const result = await executor.execute(step, createTestContext());
 
-		expect(logMock).toHaveBeenCalledWith('"ergon-flow status=passed"');
+		expect(logMock).toHaveBeenCalledWith(
+			'"[ergon-flow] workflow=code.refactor run=run_1 step=notify.stdout channel=stdout\\nergon-flow status=passed"',
+		);
 		expect(result).toEqual({
+			artifacts: [
+				{
+					name: 'run.summary',
+					type: 'json',
+					value: {
+						channel: 'stdout',
+						message: 'ergon-flow status=passed',
+						run_id: 'run_1',
+						step_id: 'notify.stdout',
+						workflow_id: 'code.refactor',
+						workflow_version: 1,
+					},
+				},
+			],
 			outputs: {
 				channel: 'stdout',
 				message: 'ergon-flow status=passed',
+				run_id: 'run_1',
+				step_id: 'notify.stdout',
+				workflow_id: 'code.refactor',
+				workflow_version: 1,
 			},
 			status: 'succeeded',
 		});
@@ -86,11 +106,30 @@ describe('NotifyExecutor (E6)', () => {
 			workflowId: 'code.refactor',
 		});
 		expect(result).toEqual({
+			artifacts: [
+				{
+					name: 'run.summary',
+					type: 'json',
+					value: {
+						channel: 'webhook',
+						message: 'run ergon-flow',
+						run_id: 'run_1',
+						step_id: 'notify.webhook',
+						target: 'https://example.test/hooks/notify',
+						workflow_id: 'code.refactor',
+						workflow_version: 1,
+					},
+				},
+			],
 			outputs: {
 				channel: 'webhook',
 				message: 'run ergon-flow',
+				run_id: 'run_1',
 				status: 202,
+				step_id: 'notify.webhook',
 				target: 'https://example.test/hooks/notify',
+				workflow_id: 'code.refactor',
+				workflow_version: 1,
 			},
 			status: 'succeeded',
 		});
@@ -114,7 +153,9 @@ describe('NotifyExecutor (E6)', () => {
 
 		await executor.execute(step, createTestContext());
 
-		expect(logMock).toHaveBeenCalledWith('"line 1\\nline 2"');
+		expect(logMock).toHaveBeenCalledWith(
+			'"[ergon-flow] workflow=code.refactor run=run_1 step=notify.stdout channel=stdout\\nline 1\\nline 2"',
+		);
 	});
 
 	it('rejects webhook notifications without a target', async () => {

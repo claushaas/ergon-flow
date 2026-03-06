@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type {
@@ -253,8 +259,20 @@ steps:
 		expect(artifacts.map((artifact) => artifact.name)).toEqual([
 			'analysis',
 			'report',
+			'run.summary',
 		]);
-		expect(log).toHaveBeenCalledWith('"done ok"');
+		expect(log).toHaveBeenCalledWith(
+			`"[ergon-flow] workflow=test.runner run=${queuedRun.id} step=notify channel=stdout\\ndone ok"`,
+		);
+		const storedSummary = path.join(rootDir, artifacts[2]?.path ?? '');
+		expect(JSON.parse(readFileSync(storedSummary, 'utf8'))).toEqual({
+			channel: 'stdout',
+			message: 'done ok',
+			run_id: queuedRun.id,
+			step_id: 'notify',
+			workflow_id: 'test.runner',
+			workflow_version: 1,
+		});
 
 		const storedAnalysis = path.join(rootDir, artifacts[0]?.path ?? '');
 		expect(storedAnalysis).toContain('.runs');
@@ -521,7 +539,9 @@ steps:
 		});
 
 		expect(resumedRun?.status).toBe('succeeded');
-		expect(log).toHaveBeenCalledWith(JSON.stringify('approved'));
+		expect(log).toHaveBeenCalledWith(
+			`"[ergon-flow] workflow=test.manual.resume run=${queuedRun.id} step=notify channel=stdout\\napproved"`,
+		);
 
 		const stepRuns = listStepRuns(db, queuedRun.id);
 		expect(
