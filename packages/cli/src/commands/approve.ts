@@ -1,11 +1,6 @@
 import {
-	appendEvent,
-	failRunFromManual,
-	getRun,
-	getWaitingManualStepRun,
 	openStorageDb,
-	requeueRunFromManual,
-	updateStepRunStatus,
+	decideManualStep as persistManualDecision,
 } from '@ergon/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
@@ -17,6 +12,11 @@ export interface ApproveCommandOptions {
 	dbPath?: string;
 	decision: string;
 	rootDir?: string;
+}
+
+export interface ParsedApproveCommandArgs {
+	decision: string;
+	stepId: string;
 }
 
 function assertManualDecision(value: string): ManualDecision {
@@ -35,6 +35,42 @@ function resolveCliActor(): string {
 	return `cli:${username}`;
 }
 
+export function parseApproveCommandArgs(
+	args: string[],
+): ParsedApproveCommandArgs {
+	const positionalArgs = [...args];
+	const decisionIndex = positionalArgs.indexOf('--decision');
+	let decision: string | undefined;
+
+	if (decisionIndex >= 0) {
+		const value = positionalArgs[decisionIndex + 1];
+		if (!value || value.startsWith('--')) {
+			throw new Error(
+				'Missing value for "--decision". Expected "approve" or "reject".',
+			);
+		}
+
+		decision = value;
+		positionalArgs.splice(decisionIndex, 2);
+	}
+
+	if (!decision) {
+		throw new Error(
+			'Missing value for "--decision". Expected "approve" or "reject".',
+		);
+	}
+
+	const stepId = positionalArgs[0];
+	if (!stepId) {
+		throw new Error('Missing required argument: <step_id>');
+	}
+
+	return {
+		decision,
+		stepId,
+	};
+}
+
 export function decideManualStep(
 	runId: string,
 	stepId: string,
@@ -48,127 +84,9 @@ export function decideManualStep(
 	try {
 		const decision = assertManualDecision(commandOptions.decision);
 		const normalizedStepId = assertValidStepId(stepId);
-		const run = getRun(db, runId);
-		if (!run) {
-			throw new Error(`Workflow run "${runId}" was not found`);
-		}
-		if (run.status !== 'waiting_manual') {
-			throw new Error(
-				`Workflow run "${runId}" is not waiting for manual approval`,
-			);
-		}
-		if (run.current_step_id !== normalizedStepId) {
-			throw new Error(
-				`Workflow run "${runId}" is waiting on step "${run.current_step_id ?? 'unknown'}", not "${normalizedStepId}"`,
-			);
-		}
-
-		const waitingStepRun = getWaitingManualStepRun(db, runId, normalizedStepId);
-		if (!waitingStepRun) {
-			throw new Error(
-				`Manual step "${normalizedStepId}" is not waiting for approval on run "${runId}"`,
-			);
-		}
-
-		const actor = resolveCliActor();
-		const decisionAt = new Date().toISOString();
-		const payload = {
-			decision,
-			run_id: runId,
-			step_id: normalizedStepId,
-			step_run_id: waitingStepRun.id,
-		};
-
-		appendEvent(
-			db,
-			runId,
-			decision === 'approve' ? 'manual_approved' : 'manual_rejected',
-			payload,
-			{
-				actor,
-				stepRunId: waitingStepRun.id,
-				ts: decisionAt,
-			},
-		);
-
-		if (decision === 'approve') {
-			const queuedRun = requeueRunFromManual(db, runId);
-			if (!queuedRun) {
-				throw new Error(
-					`Workflow run "${runId}" could not be requeued after approval`,
-				);
-			}
-
-			return {
-				decision,
-				run: queuedRun,
-				stepRunId: waitingStepRun.id,
-			};
-		}
-
-		const errorMessage = `Manual step "${normalizedStepId}" was rejected`;
-		updateStepRunStatus(db, waitingStepRun.id, 'failed', {
-			errorCode: 'manual_rejected',
-			errorDetail: {
-				actor,
-			},
-			errorMessage,
-			finishedAt: decisionAt,
-			output: {
-				actor,
-				decided_at: decisionAt,
-				decision: 'reject',
-			},
+		return persistManualDecision(db, runId, normalizedStepId, decision, {
+			actor: resolveCliActor(),
 		});
-		appendEvent(
-			db,
-			runId,
-			'step_failed',
-			{
-				error_code: 'manual_rejected',
-				message: errorMessage,
-				step_id: normalizedStepId,
-			},
-			{
-				actor,
-				stepRunId: waitingStepRun.id,
-				ts: decisionAt,
-			},
-		);
-		const failedRun = failRunFromManual(db, runId, {
-			errorCode: 'manual_rejected',
-			errorDetail: {
-				actor,
-				step_id: normalizedStepId,
-				step_run_id: waitingStepRun.id,
-			},
-			errorMessage,
-			finishedAt: decisionAt,
-		});
-		if (!failedRun) {
-			throw new Error(
-				`Workflow run "${runId}" could not be marked as failed after rejection`,
-			);
-		}
-		appendEvent(
-			db,
-			runId,
-			'workflow_failed',
-			{
-				error_code: 'manual_rejected',
-				message: errorMessage,
-			},
-			{
-				actor,
-				ts: decisionAt,
-			},
-		);
-
-		return {
-			decision,
-			run: failedRun,
-			stepRunId: waitingStepRun.id,
-		};
 	} finally {
 		db.close();
 	}

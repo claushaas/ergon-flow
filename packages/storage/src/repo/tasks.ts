@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { runInTransaction } from '../db.js';
+import { appendEventInTransaction } from './events.js';
 import { assertRow, optionalJson, toJson } from './utils.js';
 
 export type WorkflowRunStatus =
@@ -114,6 +115,19 @@ export interface RunFailureOptions {
 export interface RunResultOptions {
 	finishedAt?: string;
 	result?: unknown;
+}
+
+export type ManualDecision = 'approve' | 'reject';
+
+export interface DecideManualStepOptions {
+	actor: string;
+	decidedAt?: string;
+}
+
+export interface DecideManualStepResult {
+	decision: ManualDecision;
+	run: WorkflowRunRow;
+	stepRunId: string;
 }
 
 function addMilliseconds(
@@ -597,6 +611,141 @@ export function failRunFromManual(
 		);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function decideManualStep(
+	db: DatabaseSync,
+	runId: string,
+	stepId: string,
+	decision: ManualDecision,
+	options: DecideManualStepOptions,
+): DecideManualStepResult {
+	return runInTransaction(
+		db,
+		() => {
+			const run = getRun(db, runId);
+			if (!run) {
+				throw new Error(`Workflow run "${runId}" was not found`);
+			}
+			if (run.status !== 'waiting_manual') {
+				throw new Error(
+					`Workflow run "${runId}" is not waiting for manual approval`,
+				);
+			}
+			if (run.current_step_id !== stepId) {
+				throw new Error(
+					`Workflow run "${runId}" is waiting on step "${run.current_step_id ?? 'unknown'}", not "${stepId}"`,
+				);
+			}
+
+			const waitingStepRun = getWaitingManualStepRun(db, runId, stepId);
+			if (!waitingStepRun) {
+				throw new Error(
+					`Manual step "${stepId}" is not waiting for approval on run "${runId}"`,
+				);
+			}
+
+			const decisionAt = options.decidedAt ?? new Date().toISOString();
+			appendEventInTransaction(
+				db,
+				runId,
+				decision === 'approve' ? 'manual_approved' : 'manual_rejected',
+				{
+					decision,
+					run_id: runId,
+					step_id: stepId,
+					step_run_id: waitingStepRun.id,
+				},
+				{
+					actor: options.actor,
+					stepRunId: waitingStepRun.id,
+					ts: decisionAt,
+				},
+			);
+
+			if (decision === 'approve') {
+				const queuedRun = requeueRunFromManual(db, runId);
+				if (!queuedRun) {
+					throw new Error(
+						`Workflow run "${runId}" could not be requeued after approval`,
+					);
+				}
+
+				return {
+					decision,
+					run: queuedRun,
+					stepRunId: waitingStepRun.id,
+				};
+			}
+
+			const errorMessage = `Manual step "${stepId}" was rejected`;
+			updateStepRunStatus(db, waitingStepRun.id, 'failed', {
+				errorCode: 'manual_rejected',
+				errorDetail: {
+					actor: options.actor,
+				},
+				errorMessage,
+				finishedAt: decisionAt,
+				output: {
+					actor: options.actor,
+					decided_at: decisionAt,
+					decision: 'reject',
+				},
+			});
+			appendEventInTransaction(
+				db,
+				runId,
+				'step_failed',
+				{
+					error_code: 'manual_rejected',
+					message: errorMessage,
+					step_id: stepId,
+				},
+				{
+					actor: options.actor,
+					stepRunId: waitingStepRun.id,
+					ts: decisionAt,
+				},
+			);
+
+			const failedRun = failRunFromManual(db, runId, {
+				errorCode: 'manual_rejected',
+				errorDetail: {
+					actor: options.actor,
+					step_id: stepId,
+					step_run_id: waitingStepRun.id,
+				},
+				errorMessage,
+				finishedAt: decisionAt,
+			});
+			if (!failedRun) {
+				throw new Error(
+					`Workflow run "${runId}" could not be marked as failed after rejection`,
+				);
+			}
+
+			appendEventInTransaction(
+				db,
+				runId,
+				'workflow_failed',
+				{
+					error_code: 'manual_rejected',
+					message: errorMessage,
+				},
+				{
+					actor: options.actor,
+					ts: decisionAt,
+				},
+			);
+
+			return {
+				decision,
+				run: failedRun,
+				stepRunId: waitingStepRun.id,
+			};
+		},
+		{ mode: 'IMMEDIATE' },
+	);
 }
 
 export function markRunCanceled(

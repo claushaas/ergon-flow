@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-import { runApproveCommand } from './commands/approve.js';
+import {
+	parseApproveCommandArgs,
+	runApproveCommand,
+} from './commands/approve.js';
 import { runRunCommand, runRunStatusCommand } from './commands/run.js';
 import { runTemplateListCommand } from './commands/template.js';
 import { parseWorkerCommandArgs, runWorkerCommand } from './commands/worker.js';
@@ -21,19 +24,9 @@ async function main(argv: string[]): Promise<void> {
 		runWorkflowListCommand();
 		return;
 	}
-	if (command === 'approve' && subcommand && rest[0]) {
-		const decisionIndex = rest.indexOf('--decision');
-		const decision =
-			decisionIndex >= 0 && decisionIndex < rest.length - 1
-				? rest[decisionIndex + 1]
-				: undefined;
-		if (!decision || decision.startsWith('--')) {
-			throw new Error(
-				'Missing value for "--decision". Expected "approve" or "reject".',
-			);
-		}
-
-		runApproveCommand(subcommand, rest[0], { decision });
+	if (command === 'approve' && subcommand) {
+		const { decision, stepId } = parseApproveCommandArgs(rest);
+		runApproveCommand(subcommand, stepId, { decision });
 		return;
 	}
 	if (command === 'run' && subcommand) {
