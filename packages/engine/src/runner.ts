@@ -785,6 +785,35 @@ function markStepFailed(
 	throw error instanceof Error ? error : new Error(failure.message);
 }
 
+function abortIfCanceled(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+): ReturnType<typeof getRun> {
+	const currentRun = getRun(db, runId);
+	if (!currentRun) {
+		throw new Error(`Workflow run "${runId}" was not found`);
+	}
+
+	if (currentRun.status !== 'canceled') {
+		return null;
+	}
+
+	appendEvent(
+		db,
+		runId,
+		'workflow_canceled',
+		{
+			reason: 'canceled_before_next_step',
+		},
+		{
+			actor: `worker:${workerId}`,
+		},
+	);
+
+	return currentRun;
+}
+
 export async function executeRun(
 	runId: string,
 	workerId: string,
@@ -830,6 +859,11 @@ export async function executeRun(
 		stepIndex < template.steps.length;
 		stepIndex += 1
 	) {
+		const canceledRun = abortIfCanceled(options.db, run.id, workerId);
+		if (canceledRun) {
+			return canceledRun;
+		}
+
 		const step = template.steps[stepIndex];
 		if (!step) {
 			break;
