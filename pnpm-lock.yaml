@@ -38,6 +38,9 @@ importers:
 
   packages/engine:
     dependencies:
+      '@ergon/clients':
+        specifier: workspace:*
+        version: link:../clients
       '@ergon/executors':
         specifier: workspace:*
         version: link:../executors
