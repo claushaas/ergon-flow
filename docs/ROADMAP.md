@@ -294,7 +294,7 @@ Deliverable: engine can execute a workflow with `agent + exec + condition + manu
   - append events
   - advance cursor
 
-### Phase F2 — Retry handling
+### Phase F2 — Retry handling - ✅
 
 - Per-step retry (attempt increments)
 - Failure categorization

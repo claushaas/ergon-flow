@@ -3,10 +3,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+	ErrorCode,
 	StepDefinition,
 	StepRunStatus,
 	WorkflowTemplate,
 } from '@ergon/shared';
+import { ERROR_CODES } from '@ergon/shared';
 import {
 	appendEvent,
 	artifactPath,
@@ -40,6 +42,7 @@ import {
 } from './templating/index.js';
 
 const EXACT_INTERPOLATION_PATTERN = /^{{\s*([^{}]+?)\s*}}$/;
+const ERROR_CODE_SET: ReadonlySet<string> = new Set(ERROR_CODES);
 
 export interface ExecuteRunOptions {
 	artifactBaseDir?: string;
@@ -62,11 +65,21 @@ interface SkippedStepOptions {
 	stepRuns: ReturnType<typeof listStepRuns>;
 }
 
+interface FailureMetadata {
+	code: ErrorCode;
+	detail: Record<string, unknown>;
+	message: string;
+}
+
 function parseJson<T>(value: string | null, fallback: T): T {
 	if (!value) {
 		return fallback;
 	}
 	return JSON.parse(value) as T;
+}
+
+function isErrorCode(value: unknown): value is ErrorCode {
+	return typeof value === 'string' && ERROR_CODE_SET.has(value);
 }
 
 function getStepExecutor(
@@ -474,30 +487,95 @@ function resolveWorkflowOutputs(
 	return resolved;
 }
 
-function markStepFailed(
+function getFailureCodeForStep(
+	step: StepDefinition,
+	error: unknown,
+): ErrorCode {
+	if (
+		error &&
+		typeof error === 'object' &&
+		'code' in error &&
+		isErrorCode((error as { code?: unknown }).code)
+	) {
+		return (error as { code: ErrorCode }).code;
+	}
+
+	switch (step.kind) {
+		case 'agent':
+		case 'notify':
+			return 'provider_error';
+		case 'artifact':
+			return 'artifact_failed';
+		case 'condition':
+			return 'condition_failed';
+		case 'exec':
+			return 'exec_failed';
+		case 'manual':
+			return 'manual_rejected';
+		default: {
+			const exhaustive: never = step;
+			void exhaustive;
+			return 'schema_invalid';
+		}
+	}
+}
+
+function buildFailureMetadata(
+	step: StepDefinition,
+	error: unknown,
+): FailureMetadata {
+	return {
+		code: getFailureCodeForStep(step, error),
+		detail:
+			error instanceof Error
+				? {
+						name: error.name,
+						stack: error.stack,
+					}
+				: {
+						error,
+					},
+		message:
+			error instanceof Error ? error.message : `Step "${step.id}" failed`,
+	};
+}
+
+function canRetryStep(
+	step: StepDefinition,
+	attempt: number,
+	failureCode: ErrorCode,
+): boolean {
+	const retry = step.retry;
+	if (!retry) {
+		return false;
+	}
+
+	const maxAttempts = Math.max(1, Math.trunc(retry.max_attempts));
+	if (attempt >= maxAttempts) {
+		return false;
+	}
+
+	if (!retry.on || retry.on.length === 0) {
+		return true;
+	}
+
+	return retry.on.includes(failureCode);
+}
+
+function markStepRetry(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
 	stepId: string,
 	stepRunId: string,
-	error: unknown,
+	nextAttempt: number,
+	failure: FailureMetadata,
 	output?: Record<string, unknown>,
-): never {
-	const errorMessage =
-		error instanceof Error ? error.message : `Step "${stepId}" failed`;
-	const detail =
-		error instanceof Error
-			? {
-					name: error.name,
-					stack: error.stack,
-				}
-			: {
-					error,
-				};
-
+): void {
 	updateStepRunStatus(db, stepRunId, 'failed', {
-		errorDetail: detail,
-		errorMessage,
+		errorCode: failure.code,
+		errorDetail: failure.detail,
+		errorMessage: failure.message,
 		finishedAt: new Date().toISOString(),
 		output,
 	});
@@ -506,8 +584,57 @@ function markStepFailed(
 		runId,
 		'step_failed',
 		{
-			error_message: errorMessage,
+			error_code: failure.code,
+			error_message: failure.message,
 			step_id: stepId,
+		},
+		{
+			actor: `worker:${workerId}`,
+			stepRunId,
+		},
+	);
+	appendEvent(
+		db,
+		runId,
+		'step_retry',
+		{
+			error_code: failure.code,
+			next_attempt: nextAttempt,
+			step_id: stepId,
+		},
+		{
+			actor: `worker:${workerId}`,
+			stepRunId,
+		},
+	);
+}
+
+function markStepFailed(
+	db: DatabaseSync,
+	runId: string,
+	workerId: string,
+	step: StepDefinition,
+	stepRunId: string,
+	error: unknown,
+	output?: Record<string, unknown>,
+): never {
+	const failure = buildFailureMetadata(step, error);
+
+	updateStepRunStatus(db, stepRunId, 'failed', {
+		errorCode: failure.code,
+		errorDetail: failure.detail,
+		errorMessage: failure.message,
+		finishedAt: new Date().toISOString(),
+		output,
+	});
+	appendEvent(
+		db,
+		runId,
+		'step_failed',
+		{
+			error_code: failure.code,
+			error_message: failure.message,
+			step_id: step.id,
 		},
 		{
 			actor: `worker:${workerId}`,
@@ -519,18 +646,20 @@ function markStepFailed(
 		runId,
 		'workflow_failed',
 		{
-			error_message: errorMessage,
-			step_id: stepId,
+			error_code: failure.code,
+			error_message: failure.message,
+			step_id: step.id,
 		},
 		{
 			actor: `worker:${workerId}`,
 		},
 	);
 	markRunFailed(db, runId, workerId, {
-		errorDetail: detail,
-		errorMessage,
+		errorCode: failure.code,
+		errorDetail: failure.detail,
+		errorMessage: failure.message,
 	});
-	throw error instanceof Error ? error : new Error(errorMessage);
+	throw error instanceof Error ? error : new Error(failure.message);
 }
 
 export async function executeRun(
@@ -585,33 +714,32 @@ export async function executeRun(
 
 		updateRunCursor(options.db, run.id, workerId, stepIndex, step.id);
 
-		const stepAttempt = getStepAttempt(step.id, stepRuns);
-		const context = createExecutionContext({
-			artifacts: state.artifacts,
-			inputs,
-			run: {
-				attempt: stepAttempt,
-				runId: run.id,
-				stepIndex,
-				workerId,
-				workflowId: template.workflow.id,
-				workflowVersion: template.workflow.version,
-			},
-		});
-		const request = buildRequestSnapshot(step, context);
-		const stepRun = createStepRun(
-			options.db,
-			run.id,
-			step.id,
-			stepAttempt,
-			step.kind,
-			{
-				dependsOn: step.depends_on ?? [],
-				request,
-			},
-		);
-
 		if (shouldSkipStep(step, state.completedSteps)) {
+			const stepAttempt = getStepAttempt(step.id, stepRuns);
+			const context = createExecutionContext({
+				artifacts: state.artifacts,
+				inputs,
+				run: {
+					attempt: stepAttempt,
+					runId: run.id,
+					stepIndex,
+					workerId,
+					workflowId: template.workflow.id,
+					workflowVersion: template.workflow.version,
+				},
+			});
+			const request = buildRequestSnapshot(step, context);
+			const stepRun = createStepRun(
+				options.db,
+				run.id,
+				step.id,
+				stepAttempt,
+				step.kind,
+				{
+					dependsOn: step.depends_on ?? [],
+					request,
+				},
+			);
 			const skippedOutput = {
 				reason: 'dependency_not_satisfied',
 				skipped_by: step.depends_on ?? [],
@@ -637,70 +765,181 @@ export async function executeRun(
 			continue;
 		}
 
-		updateStepRunStatus(options.db, stepRun.id, 'running', {
-			request,
-			startedAt: new Date().toISOString(),
-		});
-		appendEvent(
-			options.db,
-			run.id,
-			'step_started',
-			{
-				attempt: stepAttempt,
-				step_id: step.id,
-				step_kind: step.kind,
-			},
-			{
-				actor: `worker:${workerId}`,
-				stepRunId: stepRun.id,
-			},
-		);
-
-		let result: ExecutorResult;
-		try {
-			result = await getStepExecutor(options.executors, step).execute(
-				step,
-				context,
-			);
-		} catch (error) {
-			markStepFailed(options.db, run.id, workerId, step.id, stepRun.id, error);
-		}
-
-		appendStepEvents(options.db, run.id, stepRun.id, workerId, result.events);
-
-		if (result.status === 'failed') {
-			markStepFailed(
+		while (true) {
+			const stepAttempt = getStepAttempt(step.id, stepRuns);
+			const context = createExecutionContext({
+				artifacts: state.artifacts,
+				inputs,
+				run: {
+					attempt: stepAttempt,
+					runId: run.id,
+					stepIndex,
+					workerId,
+					workflowId: template.workflow.id,
+					workflowVersion: template.workflow.version,
+				},
+			});
+			const request = buildRequestSnapshot(step, context);
+			const stepRun = createStepRun(
 				options.db,
 				run.id,
-				workerId,
 				step.id,
-				stepRun.id,
-				new Error(`Step "${step.id}" returned status failed`),
-				result.outputs,
+				stepAttempt,
+				step.kind,
+				{
+					dependsOn: step.depends_on ?? [],
+					request,
+				},
 			);
-		}
 
-		if (result.status === 'waiting_manual') {
-			updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
+			updateStepRunStatus(options.db, stepRun.id, 'running', {
+				request,
+				startedAt: new Date().toISOString(),
+			});
+			appendEvent(
+				options.db,
+				run.id,
+				'step_started',
+				{
+					attempt: stepAttempt,
+					step_id: step.id,
+					step_kind: step.kind,
+				},
+				{
+					actor: `worker:${workerId}`,
+					stepRunId: stepRun.id,
+				},
+			);
+
+			let result: ExecutorResult;
+			try {
+				result = await getStepExecutor(options.executors, step).execute(
+					step,
+					context,
+				);
+			} catch (error) {
+				const failure = buildFailureMetadata(step, error);
+				if (canRetryStep(step, stepAttempt, failure.code)) {
+					markStepRetry(
+						options.db,
+						run.id,
+						workerId,
+						step.id,
+						stepRun.id,
+						stepAttempt + 1,
+						failure,
+					);
+					stepRuns.push({
+						...stepRun,
+						error_code: failure.code,
+						error_detail_json: JSON.stringify(failure.detail),
+						error_message: failure.message,
+						status: 'failed',
+					});
+					continue;
+				}
+				markStepFailed(options.db, run.id, workerId, step, stepRun.id, error);
+			}
+
+			appendStepEvents(options.db, run.id, stepRun.id, workerId, result.events);
+
+			if (result.status === 'failed') {
+				const failure = buildFailureMetadata(
+					step,
+					new Error(`Step "${step.id}" returned status failed`),
+				);
+				if (canRetryStep(step, stepAttempt, failure.code)) {
+					markStepRetry(
+						options.db,
+						run.id,
+						workerId,
+						step.id,
+						stepRun.id,
+						stepAttempt + 1,
+						failure,
+						result.outputs,
+					);
+					stepRuns.push({
+						...stepRun,
+						error_code: failure.code,
+						error_detail_json: JSON.stringify(failure.detail),
+						error_message: failure.message,
+						output_json: JSON.stringify(result.outputs ?? null),
+						status: 'failed',
+					});
+					continue;
+				}
+				markStepFailed(
+					options.db,
+					run.id,
+					workerId,
+					step,
+					stepRun.id,
+					new Error(`Step "${step.id}" returned status failed`),
+					result.outputs,
+				);
+			}
+
+			if (result.status === 'waiting_manual') {
+				updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
+					finishedAt: new Date().toISOString(),
+					output: result.outputs,
+				});
+				markRunWaitingManual(options.db, run.id, workerId);
+				return getRun(options.db, run.id);
+			}
+
+			if (result.status === 'skipped') {
+				const skippedOutput = result.outputs ?? {};
+				state.completedSteps.set(step.id, {
+					output: skippedOutput,
+					status: 'skipped',
+				});
+				handleSkippedStep(options.db, workerId, {
+					output: skippedOutput,
+					runId: run.id,
+					step,
+					stepRun,
+					stepRuns,
+				});
+				updateRunCursor(
+					options.db,
+					run.id,
+					workerId,
+					stepIndex + 1,
+					template.steps[stepIndex + 1]?.id ?? null,
+				);
+				break;
+			}
+
+			const storedArtifacts = persistArtifacts(
+				options.db,
+				artifactBaseDir,
+				run.id,
+				stepRun.id,
+				result.artifacts ?? [],
+			);
+			Object.assign(state.artifacts, storedArtifacts);
+			updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
 				finishedAt: new Date().toISOString(),
 				output: result.outputs,
 			});
-			markRunWaitingManual(options.db, run.id, workerId);
-			return getRun(options.db, run.id);
-		}
-
-		if (result.status === 'skipped') {
-			const skippedOutput = result.outputs ?? {};
+			appendEvent(
+				options.db,
+				run.id,
+				'step_succeeded',
+				{
+					artifact_names: Object.keys(storedArtifacts),
+					step_id: step.id,
+				},
+				{
+					actor: `worker:${workerId}`,
+					stepRunId: stepRun.id,
+				},
+			);
 			state.completedSteps.set(step.id, {
-				output: skippedOutput,
-				status: 'skipped',
-			});
-			handleSkippedStep(options.db, workerId, {
-				output: skippedOutput,
-				runId: run.id,
-				step,
-				stepRun,
-				stepRuns,
+				output: result.outputs,
+				status: 'succeeded',
 			});
 			updateRunCursor(
 				options.db,
@@ -709,50 +948,13 @@ export async function executeRun(
 				stepIndex + 1,
 				template.steps[stepIndex + 1]?.id ?? null,
 			);
-			continue;
+			stepRuns.push({
+				...stepRun,
+				output_json: JSON.stringify(result.outputs ?? null),
+				status: 'succeeded',
+			});
+			break;
 		}
-
-		const storedArtifacts = persistArtifacts(
-			options.db,
-			artifactBaseDir,
-			run.id,
-			stepRun.id,
-			result.artifacts ?? [],
-		);
-		Object.assign(state.artifacts, storedArtifacts);
-		updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
-			finishedAt: new Date().toISOString(),
-			output: result.outputs,
-		});
-		appendEvent(
-			options.db,
-			run.id,
-			'step_succeeded',
-			{
-				artifact_names: Object.keys(storedArtifacts),
-				step_id: step.id,
-			},
-			{
-				actor: `worker:${workerId}`,
-				stepRunId: stepRun.id,
-			},
-		);
-		state.completedSteps.set(step.id, {
-			output: result.outputs,
-			status: 'succeeded',
-		});
-		updateRunCursor(
-			options.db,
-			run.id,
-			workerId,
-			stepIndex + 1,
-			template.steps[stepIndex + 1]?.id ?? null,
-		);
-		stepRuns.push({
-			...stepRun,
-			output_json: JSON.stringify(result.outputs ?? null),
-			status: 'succeeded',
-		});
 	}
 
 	const workflowResult = resolveWorkflowOutputs(
