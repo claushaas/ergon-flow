@@ -792,10 +792,16 @@ export function cancelRun(
 				)
 				.get(finishedAt, finishedAt, runId);
 
-			const canceledRun = assertRow<WorkflowRunRow>(
-				row,
-				`Failed to cancel workflow run ${runId}`,
-			);
+			if (!row) {
+				const currentRun = getRun(db, runId);
+				const statusInfo = currentRun
+					? `status is "${currentRun.status}"`
+					: 'it no longer exists';
+				throw new Error(
+					`Failed to cancel workflow run "${runId}"; its ${statusInfo}.`,
+				);
+			}
+			const canceledRun = row as unknown as WorkflowRunRow;
 
 			appendEventInTransaction(
 				db,
