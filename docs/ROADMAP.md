@@ -354,7 +354,7 @@ Deliverable: complete user flow from scheduling to approval to completion.
 
 ---
 
-## Scope I — Notifying “PR ready” (v0.0.1 requirement)
+## Scope I — Notifying “PR ready” (v0.0.1 requirement) - ✅
 
 ### Phase I1 — Local notification - ✅
 
@@ -362,7 +362,7 @@ Deliverable: complete user flow from scheduling to approval to completion.
   - prints a stable message to stdout
   - writes a `run.summary` artifact
 
-### Phase I2 — Optional channel notification
+### Phase I2 — Optional channel notification - ✅
 
 - If `openclaw` is configured, allow:
   - `openclaw message send ...` as the notify backend
