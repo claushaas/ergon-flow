@@ -139,6 +139,89 @@ describe('NotifyExecutor (E6)', () => {
 		});
 	});
 
+	it('sends openclaw notifications using the configured target', async () => {
+		const sendOpenClawMessageMock = vi.fn().mockResolvedValue({
+			status: 0,
+		});
+		const executor = new NotifyExecutor({
+			sendOpenClawMessage: sendOpenClawMessageMock,
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'openclaw',
+			id: 'notify.openclaw',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+			target: 'team/{{ inputs.repo }}',
+		};
+
+		const result = await executor.execute(step, createTestContext());
+
+		expect(sendOpenClawMessageMock).toHaveBeenCalledWith({
+			message: 'run ergon-flow',
+			target: 'team/ergon-flow',
+		});
+		expect(result).toEqual({
+			artifacts: [
+				{
+					name: 'run.summary',
+					type: 'json',
+					value: {
+						channel: 'openclaw',
+						message: 'run ergon-flow',
+						run_id: 'run_1',
+						step_id: 'notify.openclaw',
+						target: 'team/ergon-flow',
+						workflow_id: 'code.refactor',
+						workflow_version: 1,
+					},
+				},
+			],
+			outputs: {
+				channel: 'openclaw',
+				message: 'run ergon-flow',
+				run_id: 'run_1',
+				status: 0,
+				step_id: 'notify.openclaw',
+				target: 'team/ergon-flow',
+				workflow_id: 'code.refactor',
+				workflow_version: 1,
+			},
+			status: 'succeeded',
+		});
+	});
+
+	it('uses the configured openclaw command and args for notifications', async () => {
+		const spawnMock = vi.fn().mockResolvedValue({
+			code: 0,
+			signal: null,
+			stderr: '',
+			stdout: 'ok',
+		});
+		const executor = new NotifyExecutor({
+			openclaw: {
+				args: ['--profile', 'ops'],
+				command: 'openclaw',
+				spawn: spawnMock,
+			},
+		});
+		const step: NotifyStepDefinition = {
+			channel: 'openclaw',
+			id: 'notify.openclaw',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+			target: 'team/{{ inputs.repo }}',
+		};
+
+		await executor.execute(step, createTestContext());
+
+		expect(spawnMock).toHaveBeenCalledWith({
+			args: ['--profile', 'ops', 'message', 'send', 'team/ergon-flow'],
+			command: 'openclaw',
+			env: undefined,
+			input: 'run ergon-flow',
+		});
+	});
+
 	it('sanitizes stdout messages before logging', async () => {
 		const executor = new NotifyExecutor({
 			log: logMock,
@@ -227,6 +310,20 @@ describe('NotifyExecutor (E6)', () => {
 
 		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
 			'Notify step "notify.slack" uses unsupported channel "slack"',
+		);
+	});
+
+	it('rejects openclaw notifications without a target', async () => {
+		const executor = new NotifyExecutor();
+		const step: NotifyStepDefinition = {
+			channel: 'openclaw',
+			id: 'notify.openclaw',
+			kind: 'notify',
+			message: 'run {{ inputs.repo }}',
+		};
+
+		await expect(executor.execute(step, createTestContext())).rejects.toThrow(
+			'Notify step "notify.openclaw" requires a target',
 		);
 	});
 

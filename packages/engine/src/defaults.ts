@@ -1,4 +1,5 @@
 import {
+	type CliClientOptions,
 	createClientRegistry,
 	type ProviderConfigMap,
 } from '../../clients/src/index.js';
@@ -34,6 +35,11 @@ export function createDefaultExecutorRegistry(
 		new ConditionExecutor(),
 		new ExecExecutor(options.exec),
 		new ManualExecutor(),
-		new NotifyExecutor(options.notify),
+		new NotifyExecutor({
+			...options.notify,
+			openclaw: options.providerConfigs?.openclaw as
+				| CliClientOptions
+				| undefined,
+		}),
 	]);
 }

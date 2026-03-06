@@ -1,6 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type { NotifyStepDefinition } from '@ergon/shared';
+import type { CliClientOptions, CliSpawn } from '../../../clients/src/index.js';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,
@@ -20,15 +21,25 @@ export interface NotifyWebhookResult {
 	status?: number;
 }
 
+export interface NotifyOpenClawResult {
+	status?: number;
+}
+
 export type HostnameResolver = typeof dnsLookup;
 export type NotifyLogger = (message: string) => void;
 export type NotifyWebhookSender = (
 	payload: NotifyWebhookPayload,
 ) => Promise<NotifyWebhookResult>;
+export type NotifyOpenClawSender = (payload: {
+	message: string;
+	target: string;
+}) => Promise<NotifyOpenClawResult>;
 
 export interface NotifyExecutorOptions {
 	log?: NotifyLogger;
+	openclaw?: CliClientOptions;
 	resolveHostname?: HostnameResolver;
+	sendOpenClawMessage?: NotifyOpenClawSender;
 	sendWebhook?: NotifyWebhookSender;
 }
 
@@ -43,6 +54,9 @@ interface RunSummaryArtifact {
 	workflow_id: string;
 	workflow_version: number;
 }
+
+const DEFAULT_OPENCLAW_COMMAND = 'openclaw';
+const DEFAULT_OPENCLAW_ARGS = ['message', 'send'];
 
 function sanitizeLoggedMessage(message: string): string {
 	return JSON.stringify(message.replaceAll('\u0000', ''));
@@ -181,14 +195,98 @@ export async function defaultSendWebhook(
 	};
 }
 
+async function defaultSpawn(options: {
+	args: string[];
+	command: string;
+	env?: Record<string, string>;
+	input: string;
+	spawn?: CliSpawn;
+}): Promise<{ code: number | null; stderr: string; stdout: string }> {
+	if (options.spawn) {
+		const result = await options.spawn({
+			args: options.args,
+			command: options.command,
+			env: options.env,
+			input: options.input,
+		});
+		return {
+			code: result.code,
+			stderr: result.stderr,
+			stdout: result.stdout,
+		};
+	}
+
+	const { spawn } = await import('node:child_process');
+	return await new Promise((resolve, reject) => {
+		const child = spawn(options.command, options.args, {
+			env: options.env ? { ...process.env, ...options.env } : process.env,
+			stdio: 'pipe',
+		});
+		let stdout = '';
+		let stderr = '';
+
+		child.stdout.on('data', (chunk) => {
+			stdout += chunk.toString();
+		});
+		child.stderr.on('data', (chunk) => {
+			stderr += chunk.toString();
+		});
+		child.on('error', reject);
+		child.on('close', (code) => {
+			resolve({
+				code,
+				stderr,
+				stdout,
+			});
+		});
+
+		child.stdin.write(options.input);
+		child.stdin.end();
+	});
+}
+
+function createOpenClawSender(
+	options: CliClientOptions = {},
+): NotifyOpenClawSender {
+	const command = options.command ?? DEFAULT_OPENCLAW_COMMAND;
+	const args = [...(options.args ?? []), ...DEFAULT_OPENCLAW_ARGS];
+	const env = options.env;
+	const spawn = options.spawn;
+
+	return async ({ message, target }) => {
+		const result = await defaultSpawn({
+			args: [...args, target],
+			command,
+			env,
+			input: message,
+			spawn,
+		});
+		if (result.code !== 0) {
+			const detail = result.stderr.trim() || result.stdout.trim();
+			throw new Error(
+				detail
+					? `OpenClaw notify command failed (${String(result.code)}): ${detail}`
+					: `OpenClaw notify command failed (${String(result.code)})`,
+			);
+		}
+
+		return {
+			status: 0,
+		};
+	};
+}
+
 export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 	public readonly kind = 'notify' as const;
 	private readonly log: NotifyLogger;
+	private readonly sendOpenClawMessage: NotifyOpenClawSender;
 	private readonly resolveHostname: HostnameResolver;
 	private readonly sendWebhook: NotifyWebhookSender;
 
 	public constructor(options: NotifyExecutorOptions = {}) {
 		this.log = options.log ?? console.log;
+		this.sendOpenClawMessage =
+			options.sendOpenClawMessage ?? createOpenClawSender(options.openclaw);
 		this.resolveHostname = options.resolveHostname ?? dnsLookup;
 		this.sendWebhook = options.sendWebhook ?? defaultSendWebhook;
 	}
@@ -250,6 +348,35 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					outputs: {
 						...summary,
 						status: result.status,
+					},
+					status: 'succeeded',
+				};
+			}
+			case 'openclaw': {
+				if (!step.target) {
+					throw new Error(`Notify step "${step.id}" requires a target`);
+				}
+
+				const target = interpolateTemplateString(step.target, {
+					artifacts: context.artifacts,
+					inputs: context.inputs,
+				});
+				await this.sendOpenClawMessage({
+					message: payload.message,
+					target,
+				});
+				const summary = buildRunSummaryArtifact(
+					context,
+					step,
+					payload.message,
+					target,
+				);
+
+				return {
+					artifacts: [createRunSummaryArtifact(summary)],
+					outputs: {
+						...summary,
+						status: 0,
 					},
 					status: 'succeeded',
 				};
