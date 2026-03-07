@@ -95,9 +95,7 @@ export async function defaultSpawn(
 			},
 			signal: options.signal,
 		});
-		const settle = <T>(
-			handler: () => T,
-		): T | undefined => {
+		const settle = <T>(handler: () => T): T | undefined => {
 			if (settled) {
 				cleanupAbort();
 				return undefined;
@@ -134,12 +132,14 @@ export async function defaultSpawn(
 		});
 		child.on('error', fail);
 		child.on('close', (code, signal) => {
-			settle(() => resolve({
-				code,
-				signal,
-				stderr: decodeOutput(stderrChunks),
-				stdout: decodeOutput(stdoutChunks),
-			}));
+			settle(() =>
+				resolve({
+					code,
+					signal,
+					stderr: decodeOutput(stderrChunks),
+					stdout: decodeOutput(stdoutChunks),
+				}),
+			);
 		});
 		if (registerAbort()) {
 			return;
