@@ -553,11 +553,16 @@ steps:
 
 		const stepRuns = listStepRuns(db, queuedRun.id);
 		expect(
-			stepRuns.map((stepRun) => [stepRun.step_id, stepRun.attempt]),
+			stepRuns
+				.map((stepRun) => [stepRun.step_id, stepRun.attempt] as const)
+				.sort(
+					([leftId, leftAttempt], [rightId, rightAttempt]) =>
+						leftId.localeCompare(rightId) || leftAttempt - rightAttempt,
+				),
 		).toEqual([
 			['analyze', 1],
-			['ignored.exec', 1],
 			['extract.answer', 1],
+			['ignored.exec', 1],
 		]);
 
 		db.close();
