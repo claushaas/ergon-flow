@@ -30,7 +30,6 @@ Artifact files live under:
 
 ```text
 .runs/<run_id>/
-  artifacts/
   steps/<step_id>/<attempt>/
 ```
 

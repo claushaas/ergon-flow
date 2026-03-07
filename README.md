@@ -136,12 +136,13 @@ Artifacts live on disk under:
 
 ```text
 .runs/<run_id>/
-  artifacts/
   steps/<step_id>/<attempt>/
 ```
 
-The runtime persists attempt-local files under `steps/<step_id>/<attempt>/` and
-stores relative file paths in the `artifacts` table.
+The runtime persists concrete artifact files under
+`steps/<step_id>/<attempt>/` and stores their relative file paths in the
+`artifacts` table. The `artifacts` table is metadata in SQLite, not a second
+run-level directory containing the current artifact files.
 
 ## Canonical Docs
 
