@@ -4,7 +4,7 @@ import type {
 	StepDefinition,
 	StepKind,
 	StepRunStatus,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 
 export interface ExecutorArtifact {
 	name: string;

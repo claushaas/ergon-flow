@@ -12,8 +12,12 @@ import type {
 	ClientRequest,
 	ExecutionClient,
 	Provider,
-} from '@claushaas/shared';
-import { listArtifacts, listEvents, openStorageDb } from '@claushaas/storage';
+} from '@claushaas/ergon-shared';
+import {
+	listArtifacts,
+	listEvents,
+	openStorageDb,
+} from '@claushaas/ergon-storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideManualStep } from '../../cli/src/commands/approve.js';
 import { initProject } from '../../cli/src/commands/init.js';

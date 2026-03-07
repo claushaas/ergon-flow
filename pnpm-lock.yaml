@@ -23,28 +23,28 @@ importers:
 
   packages/cli:
     dependencies:
-      '@claushaas/engine':
+      '@claushaas/ergon-engine':
         specifier: workspace:*
         version: link:../engine
-      '@claushaas/storage':
+      '@claushaas/ergon-storage':
         specifier: workspace:*
         version: link:../storage
 
   packages/clients:
     dependencies:
-      '@claushaas/shared':
+      '@claushaas/ergon-shared':
         specifier: workspace:*
         version: link:../shared
 
   packages/engine:
     dependencies:
-      '@claushaas/clients':
+      '@claushaas/ergon-clients':
         specifier: workspace:*
         version: link:../clients
-      '@claushaas/shared':
+      '@claushaas/ergon-shared':
         specifier: workspace:*
         version: link:../shared
-      '@claushaas/storage':
+      '@claushaas/ergon-storage':
         specifier: workspace:*
         version: link:../storage
       yaml:

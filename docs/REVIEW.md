@@ -75,7 +75,7 @@ A implementação **não está aderente ao roadmap atual** nem **alinhada à doc
   Evidência: [defaults.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/defaults.ts#L1) importa `../../clients/src/index.js`; smoke real: `node packages/cli/dist/main.js template list` falha com `ERR_MODULE_NOT_FOUND`; smoke real: `node packages/cli/src/main.ts template list` falha resolvendo `./commands/approve.js`.
   Fato: CI verde não garante que o produto compilado inicia.
   Violação: blocker operacional para qualquer release.
-  Correção recomendada: usar apenas imports de package (`@claushaas/clients`), corrigir o entrypoint de desenvolvimento e adicionar smoke test do binário em CI.
+  Correção recomendada: usar apenas imports de package (`@claushaas/ergon-clients`), corrigir o entrypoint de desenvolvimento e adicionar smoke test do binário em CI.
 
 # 4. Problemas importantes não críticos
 
@@ -226,7 +226,7 @@ executável de verdade antes de mexer nas invariantes do runtime.
 
 ### Problemas cobertos por esta fase
 
-- O binário compilado `ergon` não sobe porque `@claushaas/engine` importa
+- O binário compilado `ergon` não sobe porque `@claushaas/ergon-engine` importa
   `packages/clients/src` por caminho relativo em vez de depender do package
   publicado.
 - O entrypoint de desenvolvimento também não sobe como produto consumível.
@@ -246,7 +246,7 @@ executável de verdade antes de mexer nas invariantes do runtime.
 
 1. Corrigir todos os imports cruzando para `src`.
    Escolha um único contrato de package interno e aplique em todo o monorepo.
-   `@claushaas/engine` deve importar `@claushaas/clients`, não
+   `@claushaas/ergon-engine` deve importar `@claushaas/ergon-clients`, não
    `../../clients/src/index.js`. O mesmo vale para qualquer outro acoplamento
    por caminho físico que faça o build passar mas quebre o artefato em `dist`.
 

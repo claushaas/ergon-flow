@@ -4,11 +4,11 @@
 
 All public packages are released together at the same version:
 
-- `@claushaas/shared`
-- `@claushaas/clients`
-- `@claushaas/storage`
-- `@claushaas/engine`
-- `@claushaas/cli`
+- `@claushaas/ergon-shared`
+- `@claushaas/ergon-clients`
+- `@claushaas/ergon-storage`
+- `@claushaas/ergon-engine`
+- `@claushaas/ergon-cli`
 
 Before tagging a release:
 
@@ -35,7 +35,7 @@ pnpm smoke:global-install
 The public release flow is tag-driven from `main`.
 
 1. merge the release candidate to `main`
-2. create and push a tag like `v0.1.1`
+2. create and push a tag like `v0.1.2`
 3. GitHub Actions validates the tag/version match and publishes packages in
    dependency order
 

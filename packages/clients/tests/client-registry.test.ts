@@ -3,7 +3,7 @@ import type {
 	ClientRequest,
 	ExecutionClient,
 	Provider,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import { describe, expect, it } from 'vitest';
 import {
 	ClientRegistry,

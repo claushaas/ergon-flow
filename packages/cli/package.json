@@ -6,8 +6,8 @@
 		"url": "https://github.com/claushaas/ergon-flow/issues"
 	},
 	"dependencies": {
-		"@claushaas/engine": "workspace:*",
-		"@claushaas/storage": "workspace:*"
+		"@claushaas/ergon-engine": "workspace:*",
+		"@claushaas/ergon-storage": "workspace:*"
 	},
 	"description": "Globally installable CLI for Ergon Flow",
 	"engines": {
@@ -26,7 +26,7 @@
 	],
 	"license": "MIT",
 	"main": "dist/main.js",
-	"name": "@claushaas/cli",
+	"name": "@claushaas/ergon-cli",
 	"publishConfig": {
 		"access": "public"
 	},
@@ -44,5 +44,5 @@
 	},
 	"type": "module",
 	"types": "dist/main.d.ts",
-	"version": "0.1.1"
+	"version": "0.1.2"
 }

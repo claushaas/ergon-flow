@@ -2,7 +2,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import {
 	createChildProcessAbortController,
 	type ExecStepDefinition,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,

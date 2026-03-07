@@ -5,7 +5,7 @@ describe('CLI help and version surface', () => {
 	it('renders a public help output with bootstrap guidance', () => {
 		const helpText = getCliHelpText();
 
-		expect(helpText).toContain('pnpm add -g @claushaas/cli');
+		expect(helpText).toContain('pnpm add -g @claushaas/ergon-cli');
 		expect(helpText).toContain('ergon init');
 		expect(helpText).toContain('ergon library sync');
 		expect(helpText).toContain(
@@ -15,6 +15,6 @@ describe('CLI help and version surface', () => {
 	});
 
 	it('renders the CLI version from package metadata', () => {
-		expect(getCliVersionText()).toBe('0.1.1');
+		expect(getCliVersionText()).toBe('0.1.2');
 	});
 });

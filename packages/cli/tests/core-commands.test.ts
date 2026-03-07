@@ -20,7 +20,7 @@ import {
 	registerWorkflow,
 	updateRunCursor,
 	updateStepRunStatus,
-} from '@claushaas/storage';
+} from '@claushaas/ergon-storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideManualStep } from '../src/commands/approve.js';
 import { cancelWorkflowRun } from '../src/commands/cancel.js';
@@ -366,8 +366,8 @@ steps:
 		expect(result.rootDir).toBe(rootDir);
 		expect(result.configPath).toBe(configPath);
 		expect(parsedConfig.format_version).toBe(1);
-		expect(parsedConfig.cli_version).toBe('0.1.1');
-		expect(parsedConfig.library_version).toBe('0.1.1');
+		expect(parsedConfig.cli_version).toBe('0.1.2');
+		expect(parsedConfig.library_version).toBe('0.1.2');
 		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
 		expect(Object.keys(parsedConfig.library_files)).toContain(
 			'workflows/code.refactor.yaml',
@@ -428,7 +428,7 @@ steps:
 
 		expect(summary.updated).toContain('workflows/code.refactor.yaml');
 		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
-		expect(parsedConfig.library_version).toBe('0.1.1');
+		expect(parsedConfig.library_version).toBe('0.1.2');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);

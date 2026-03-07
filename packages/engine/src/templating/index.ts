@@ -11,8 +11,8 @@ import type {
 	StepDefinition,
 	WorkflowMetadata,
 	WorkflowTemplate,
-} from '@claushaas/shared';
-import { PROVIDERS, STEP_KINDS } from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
+import { PROVIDERS, STEP_KINDS } from '@claushaas/ergon-shared';
 import { parse } from 'yaml';
 
 const INPUT_TYPES: ReadonlySet<string> = new Set([

@@ -85,11 +85,11 @@ try {
 		packWorkspacePackage(packageDir, packDir),
 	);
 	const tarballByPackageName = new Map([
-		['@claushaas/shared', tarballs[0]],
-		['@claushaas/clients', tarballs[1]],
-		['@claushaas/storage', tarballs[2]],
-		['@claushaas/engine', tarballs[3]],
-		['@claushaas/cli', tarballs[4]],
+		['@claushaas/ergon-shared', tarballs[0]],
+		['@claushaas/ergon-clients', tarballs[1]],
+		['@claushaas/ergon-storage', tarballs[2]],
+		['@claushaas/ergon-engine', tarballs[3]],
+		['@claushaas/ergon-cli', tarballs[4]],
 	]);
 	const installEnv = {
 		...process.env,
@@ -129,17 +129,17 @@ try {
 		env: installEnv,
 	});
 	run('pnpm', ['link', '--global'], {
-		cwd: path.join(installRoot, 'node_modules', '@claushaas', 'cli'),
+		cwd: path.join(installRoot, 'node_modules', '@claushaas', 'ergon-cli'),
 		env: installEnv,
 	});
 
 	const reportedVersion = runErgon(['--version'], projectRoot, installEnv);
-	if (reportedVersion !== '0.1.1') {
-		fail(`Expected ergon --version to report 0.1.1, received ${reportedVersion}`);
+	if (reportedVersion !== '0.1.2') {
+		fail(`Expected ergon --version to report 0.1.2, received ${reportedVersion}`);
 	}
 
 	const helpText = runErgon(['--help'], projectRoot, installEnv);
-	if (!helpText.includes('ergon init') || !helpText.includes('pnpm add -g @claushaas/cli')) {
+	if (!helpText.includes('ergon init') || !helpText.includes('pnpm add -g @claushaas/ergon-cli')) {
 		fail(`Unexpected ergon --help output: ${helpText}`);
 	}
 
@@ -155,7 +155,7 @@ try {
 		fail(`Expected init to create ${configPath}`);
 	}
 	const config = JSON.parse(readFileSync(configPath, 'utf8'));
-	if (config.cli_version !== '0.1.1' || config.library_version !== '0.1.1') {
+	if (config.cli_version !== '0.1.2' || config.library_version !== '0.1.2') {
 		fail(`Unexpected project config metadata: ${JSON.stringify(config)}`);
 	}
 
