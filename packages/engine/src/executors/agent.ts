@@ -75,6 +75,7 @@ export class AgentExecutor implements Executor<AgentStepDefinition> {
 			model: step.model,
 			prompt: payload.prompt,
 			provider: step.provider,
+			signal: context.signal,
 		} as const;
 		const result: AgentResult = await client.run(request);
 		const parsedJson = tryParseJson(result.text);

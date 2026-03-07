@@ -39,6 +39,7 @@ interface BaseStepDefinition {
 	kind: StepKind;
 	name?: string;
 	retry?: RetryPolicy;
+	timeout_ms?: number;
 }
 
 export interface AgentStepDefinition extends BaseStepDefinition {

@@ -175,6 +175,27 @@ describe('template validation (C2)', () => {
 		).toBe(true);
 	});
 
+	it('rejects non-positive or non-integer timeout_ms values', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{ command: 'echo one', id: 'step.zero', kind: 'exec', timeout_ms: 0 },
+				{
+					command: 'echo two',
+					id: 'step.float',
+					kind: 'exec',
+					timeout_ms: 1.5,
+				},
+			],
+			workflow: { id: 'workflow.timeout', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.filter((error) => error.path.endsWith('.timeout_ms')),
+		).toHaveLength(2);
+	});
+
 	it('rejects invalid depends_on references', () => {
 		const template = normalizeTemplate({
 			steps: [

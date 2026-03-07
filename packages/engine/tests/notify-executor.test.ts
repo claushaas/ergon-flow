@@ -117,6 +117,7 @@ describe('NotifyExecutor (E6)', () => {
 			channel: 'webhook',
 			message: 'run ergon-flow',
 			runId: 'run_2',
+			signal: context.signal,
 			stepId: 'notify.dynamic',
 			target: 'https://example.test/hooks/notify',
 			workflowId: 'code.refactor',
@@ -144,12 +145,14 @@ describe('NotifyExecutor (E6)', () => {
 			target: '{{ inputs.webhook_url }}',
 		};
 
-		const result = await executor.execute(step, createTestContext());
+		const context = createTestContext();
+		const result = await executor.execute(step, context);
 
 		expect(sendWebhookMock).toHaveBeenCalledWith({
 			channel: 'webhook',
 			message: 'run ergon-flow',
 			runId: 'run_1',
+			signal: context.signal,
 			stepId: 'notify.webhook',
 			target: 'https://example.test/hooks/notify',
 			workflowId: 'code.refactor',
@@ -203,10 +206,12 @@ describe('NotifyExecutor (E6)', () => {
 			target: 'team/{{ inputs.repo }}',
 		};
 
-		const result = await executor.execute(step, createTestContext());
+		const context = createTestContext();
+		const result = await executor.execute(step, context);
 
 		expect(sendOpenClawMessageMock).toHaveBeenCalledWith({
 			message: 'run ergon-flow',
+			signal: context.signal,
 			target: 'team/ergon-flow',
 		});
 		expect(result).toEqual({
@@ -261,13 +266,15 @@ describe('NotifyExecutor (E6)', () => {
 			target: 'team/{{ inputs.repo }}',
 		};
 
-		await executor.execute(step, createTestContext());
+		const context = createTestContext();
+		await executor.execute(step, context);
 
 		expect(spawnMock).toHaveBeenCalledWith({
 			args: ['--profile', 'ops', 'message', 'send', 'team/ergon-flow'],
 			command: 'openclaw',
 			env: undefined,
 			input: 'run ergon-flow',
+			signal: context.signal,
 		});
 	});
 

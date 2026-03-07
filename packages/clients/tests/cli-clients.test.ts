@@ -19,9 +19,11 @@ describe('CLI agent clients (D3)', () => {
 			spawn: spawnMock,
 		});
 
+		const controller = new AbortController();
 		const result = await client.run({
 			prompt: 'Review this patch',
 			provider: 'codex',
+			signal: controller.signal,
 		});
 
 		expect(result.text).toBe('codex-result');
@@ -30,6 +32,7 @@ describe('CLI agent clients (D3)', () => {
 			command: 'codex',
 			env: { CODEX_HOME: '/tmp/codex' },
 			input: 'Review this patch',
+			signal: controller.signal,
 		});
 	});
 
@@ -44,12 +47,14 @@ describe('CLI agent clients (D3)', () => {
 			spawn: spawnMock,
 		});
 
+		const controller = new AbortController();
 		await client.run({
 			messages: [
 				{ content: 'You are a reviewer.', role: 'system' },
 				{ content: 'Review this patch', role: 'user' },
 			],
 			provider: 'claude-code',
+			signal: controller.signal,
 		});
 
 		expect(spawnMock).toHaveBeenCalledWith({
@@ -64,6 +69,7 @@ describe('CLI agent clients (D3)', () => {
 				null,
 				2,
 			),
+			signal: controller.signal,
 		});
 	});
 
@@ -78,9 +84,11 @@ describe('CLI agent clients (D3)', () => {
 			spawn: spawnMock,
 		});
 
+		const controller = new AbortController();
 		const result = await client.run({
 			prompt: 'Plan this task',
 			provider: 'openclaw',
+			signal: controller.signal,
 		});
 
 		expect(result.text).toBe('openclaw-result');
@@ -89,6 +97,7 @@ describe('CLI agent clients (D3)', () => {
 			command: 'openclaw',
 			env: undefined,
 			input: 'Plan this task',
+			signal: controller.signal,
 		});
 	});
 

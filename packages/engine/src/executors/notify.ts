@@ -1,7 +1,10 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type { CliClientOptions, CliSpawn } from '@ergon/clients';
-import type { NotifyStepDefinition } from '@ergon/shared';
+import {
+	createChildProcessAbortController,
+	type NotifyStepDefinition,
+} from '@ergon/shared';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,
@@ -28,10 +31,11 @@ export interface NotifyOpenClawResult {
 export type HostnameResolver = typeof dnsLookup;
 export type NotifyLogger = (message: string) => void;
 export type NotifyWebhookSender = (
-	payload: NotifyWebhookPayload,
+	payload: NotifyWebhookPayload & { signal?: AbortSignal },
 ) => Promise<NotifyWebhookResult>;
 export type NotifyOpenClawSender = (payload: {
 	message: string;
+	signal?: AbortSignal;
 	target: string;
 }) => Promise<NotifyOpenClawResult>;
 
@@ -169,7 +173,7 @@ async function validateWebhookTarget(
 }
 
 export async function defaultSendWebhook(
-	payload: NotifyWebhookPayload,
+	payload: NotifyWebhookPayload & { signal?: AbortSignal },
 ): Promise<NotifyWebhookResult> {
 	const response = await fetch(payload.target, {
 		body: JSON.stringify({
@@ -184,6 +188,7 @@ export async function defaultSendWebhook(
 		},
 		method: 'POST',
 		redirect: 'error',
+		signal: payload.signal,
 	});
 	if (!response.ok) {
 		throw new Error(
@@ -201,17 +206,25 @@ async function defaultSpawn(options: {
 	command: string;
 	env?: Record<string, string>;
 	input: string;
+	signal?: AbortSignal;
 	spawn?: CliSpawn;
-}): Promise<{ code: number | null; stderr: string; stdout: string }> {
+}): Promise<{
+	code: number | null;
+	signal: NodeJS.Signals | null;
+	stderr: string;
+	stdout: string;
+}> {
 	if (options.spawn) {
 		const result = await options.spawn({
 			args: options.args,
 			command: options.command,
 			env: options.env,
 			input: options.input,
+			signal: options.signal,
 		});
 		return {
 			code: result.code,
+			signal: result.signal,
 			stderr: result.stderr,
 			stdout: result.stdout,
 		};
@@ -225,6 +238,30 @@ async function defaultSpawn(options: {
 		});
 		let stdout = '';
 		let stderr = '';
+		let settled = false;
+		const { cleanupAbort, registerAbort } = createChildProcessAbortController({
+			abortMessage: 'Notify command aborted',
+			child,
+			isSettled: () => settled,
+			onAbort: reject,
+			setSettled: () => {
+				settled = true;
+			},
+			signal: options.signal,
+		});
+		const settle = <T>(handler: () => T): T | undefined => {
+			if (settled) {
+				cleanupAbort();
+				return undefined;
+			}
+			settled = true;
+			cleanupAbort();
+			return handler();
+		};
+
+		const fail = (error: Error) => {
+			settle(() => reject(error));
+		};
 
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
@@ -232,14 +269,20 @@ async function defaultSpawn(options: {
 		child.stderr.on('data', (chunk) => {
 			stderr += chunk.toString();
 		});
-		child.on('error', reject);
-		child.on('close', (code) => {
-			resolve({
-				code,
-				stderr,
-				stdout,
-			});
+		child.on('error', fail);
+		child.on('close', (code, signal) => {
+			settle(() =>
+				resolve({
+					code,
+					signal,
+					stderr,
+					stdout,
+				}),
+			);
 		});
+		if (registerAbort()) {
+			return;
+		}
 
 		child.stdin.write(options.input);
 		child.stdin.end();
@@ -254,12 +297,13 @@ function createOpenClawSender(
 	const env = options.env;
 	const spawn = options.spawn;
 
-	return async ({ message, target }) => {
+	return async ({ message, signal, target }) => {
 		const result = await defaultSpawn({
 			args: [...args, target],
 			command,
 			env,
 			input: message,
+			signal,
 			spawn,
 		});
 		if (result.code !== 0) {
@@ -342,6 +386,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					channel,
 					message: payload.message,
 					runId: context.run.runId,
+					signal: context.signal,
 					stepId: step.id,
 					target: validatedTarget.toString(),
 					workflowId: context.run.workflowId,
@@ -379,6 +424,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 				}
 				await this.sendOpenClawMessage({
 					message: payload.message,
+					signal: context.signal,
 					target,
 				});
 				const summary = buildRunSummaryArtifact(

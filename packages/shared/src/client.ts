@@ -13,6 +13,7 @@ export interface ClientRequest {
 	model?: string;
 	prompt?: string;
 	provider: Provider;
+	signal?: AbortSignal;
 }
 
 // ─── Result ──────────────────────────────────────────────────────────────────

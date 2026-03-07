@@ -1,10 +1,11 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import type {
-	AgentResult,
-	ChatMessage,
-	ClientRequest,
-	ExecutionClient,
-	Provider,
+import {
+	type AgentResult,
+	type ChatMessage,
+	type ClientRequest,
+	createChildProcessAbortController,
+	type ExecutionClient,
+	type Provider,
 } from '@ergon/shared';
 
 export interface SharedProviderConfig {
@@ -54,6 +55,7 @@ export type CliSpawn = (options: {
 	command: string;
 	env?: Record<string, string>;
 	input: string;
+	signal?: AbortSignal;
 }) => Promise<CliSpawnResult>;
 
 export interface CliClientOptions extends CliAgentProviderConfig {
@@ -306,6 +308,7 @@ async function defaultSpawn(options: {
 	command: string;
 	env?: Record<string, string>;
 	input: string;
+	signal?: AbortSignal;
 }): Promise<CliSpawnResult> {
 	return await new Promise<CliSpawnResult>((resolve, reject) => {
 		const child = nodeSpawn(options.command, options.args, {
@@ -314,6 +317,26 @@ async function defaultSpawn(options: {
 		});
 		let stdout = '';
 		let stderr = '';
+		let settled = false;
+		const { cleanupAbort, registerAbort } = createChildProcessAbortController({
+			abortMessage: 'Client command aborted',
+			child,
+			isSettled: () => settled,
+			onAbort: reject,
+			setSettled: () => {
+				settled = true;
+			},
+			signal: options.signal,
+		});
+		const settle = <T>(handler: () => T): T | undefined => {
+			if (settled) {
+				cleanupAbort();
+				return undefined;
+			}
+			settled = true;
+			cleanupAbort();
+			return handler();
+		};
 
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
@@ -321,15 +344,22 @@ async function defaultSpawn(options: {
 		child.stderr.on('data', (chunk) => {
 			stderr += chunk.toString();
 		});
-		child.on('error', reject);
-		child.on('close', (code, signal) => {
-			resolve({
-				code,
-				signal,
-				stderr,
-				stdout,
-			});
+		child.on('error', (error) => {
+			settle(() => reject(error));
 		});
+		child.on('close', (code, signal) => {
+			settle(() =>
+				resolve({
+					code,
+					signal,
+					stderr,
+					stdout,
+				}),
+			);
+		});
+		if (registerAbort()) {
+			return;
+		}
 
 		child.stdin.write(options.input);
 		child.stdin.end();
@@ -401,6 +431,7 @@ export class OpenRouterModelClient implements ExecutionClient {
 				...(this.appName ? { 'X-Title': this.appName } : {}),
 			},
 			method: 'POST',
+			signal: request.signal,
 		});
 
 		if (!response.ok) {
@@ -446,6 +477,7 @@ export class OllamaModelClient implements ExecutionClient {
 				'Content-Type': 'application/json',
 			},
 			method: 'POST',
+			signal: request.signal,
 		});
 
 		if (!response.ok) {
@@ -493,6 +525,7 @@ abstract class CliAgentClientBase implements ExecutionClient {
 			command: this.command,
 			env: this.env,
 			input: resolveCliInput(request, this.displayName),
+			signal: request.signal,
 		});
 		if (result.code !== 0) {
 			const detail = result.stderr.trim() || result.stdout.trim();
