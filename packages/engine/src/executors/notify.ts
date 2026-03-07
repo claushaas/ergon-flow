@@ -1,7 +1,10 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type { CliClientOptions, CliSpawn } from '@ergon/clients';
-import type { NotifyStepDefinition } from '@ergon/shared';
+import {
+	createChildProcessAbortController,
+	type NotifyStepDefinition,
+} from '@ergon/shared';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,
@@ -205,7 +208,12 @@ async function defaultSpawn(options: {
 	input: string;
 	signal?: AbortSignal;
 	spawn?: CliSpawn;
-}): Promise<{ code: number | null; stderr: string; stdout: string }> {
+}): Promise<{
+	code: number | null;
+	signal: NodeJS.Signals | null;
+	stderr: string;
+	stdout: string;
+}> {
 	if (options.spawn) {
 		const result = await options.spawn({
 			args: options.args,
@@ -216,6 +224,7 @@ async function defaultSpawn(options: {
 		});
 		return {
 			code: result.code,
+			signal: result.signal,
 			stderr: result.stderr,
 			stdout: result.stdout,
 		};
@@ -230,17 +239,16 @@ async function defaultSpawn(options: {
 		let stdout = '';
 		let stderr = '';
 		let settled = false;
-		let forceKillTimer: NodeJS.Timeout | undefined;
-
-		const cleanupAbort = () => {
-			if (options.signal) {
-				options.signal.removeEventListener('abort', abortHandler);
-			}
-			if (forceKillTimer) {
-				clearTimeout(forceKillTimer);
-				forceKillTimer = undefined;
-			}
-		};
+		const { cleanupAbort, registerAbort } = createChildProcessAbortController({
+			abortMessage: 'Notify command aborted',
+			child,
+			isSettled: () => settled,
+			onAbort: reject,
+			setSettled: () => {
+				settled = true;
+			},
+			signal: options.signal,
+		});
 
 		const fail = (error: Error) => {
 			if (settled) {
@@ -251,26 +259,6 @@ async function defaultSpawn(options: {
 			reject(error);
 		};
 
-		const abortHandler = () => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			forceKillTimer = setTimeout(() => {
-				if (!child.killed) {
-					child.kill('SIGKILL');
-				}
-			}, 250);
-			reject(
-				options.signal?.reason instanceof Error
-					? options.signal.reason
-					: Object.assign(new Error('Notify command aborted'), {
-							name: 'AbortError',
-						}),
-			);
-		};
-
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
 		});
@@ -278,7 +266,7 @@ async function defaultSpawn(options: {
 			stderr += chunk.toString();
 		});
 		child.on('error', fail);
-		child.on('close', (code) => {
+		child.on('close', (code, signal) => {
 			if (settled) {
 				cleanupAbort();
 				return;
@@ -287,16 +275,13 @@ async function defaultSpawn(options: {
 			cleanupAbort();
 			resolve({
 				code,
+				signal,
 				stderr,
 				stdout,
 			});
 		});
-		if (options.signal) {
-			if (options.signal.aborted) {
-				abortHandler();
-				return;
-			}
-			options.signal.addEventListener('abort', abortHandler, { once: true });
+		if (registerAbort()) {
+			return;
 		}
 
 		child.stdin.write(options.input);

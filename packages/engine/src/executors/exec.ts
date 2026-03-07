@@ -1,5 +1,8 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import type { ExecStepDefinition } from '@ergon/shared';
+import {
+	createChildProcessAbortController,
+	type ExecStepDefinition,
+} from '@ergon/shared';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,
@@ -82,17 +85,16 @@ export async function defaultSpawn(
 		let stdoutBytes = 0;
 		let stderrBytes = 0;
 		let settled = false;
-		let forceKillTimer: NodeJS.Timeout | undefined;
-
-		const cleanupAbort = () => {
-			if (options.signal) {
-				options.signal.removeEventListener('abort', abortHandler);
-			}
-			if (forceKillTimer) {
-				clearTimeout(forceKillTimer);
-				forceKillTimer = undefined;
-			}
-		};
+		const { cleanupAbort, registerAbort } = createChildProcessAbortController({
+			abortMessage: 'Exec command aborted',
+			child,
+			isSettled: () => settled,
+			onAbort: reject,
+			setSettled: () => {
+				settled = true;
+			},
+			signal: options.signal,
+		});
 
 		const fail = (error: Error) => {
 			if (settled) {
@@ -102,26 +104,6 @@ export async function defaultSpawn(
 			cleanupAbort();
 			child.kill('SIGTERM');
 			reject(error);
-		};
-
-		const abortHandler = () => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			forceKillTimer = setTimeout(() => {
-				if (!child.killed) {
-					child.kill('SIGKILL');
-				}
-			}, 250);
-			const abortError =
-				options.signal?.reason instanceof Error
-					? options.signal.reason
-					: Object.assign(new Error('Exec command aborted'), {
-							name: 'AbortError',
-						});
-			reject(abortError);
 		};
 
 		child.stdout.on('data', (chunk) => {
@@ -157,12 +139,8 @@ export async function defaultSpawn(
 				stdout: decodeOutput(stdoutChunks),
 			});
 		});
-		if (options.signal) {
-			if (options.signal.aborted) {
-				abortHandler();
-				return;
-			}
-			options.signal.addEventListener('abort', abortHandler, { once: true });
+		if (registerAbort()) {
+			return;
 		}
 	});
 }

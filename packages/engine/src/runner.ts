@@ -1287,6 +1287,39 @@ function resumeApprovedManualStep(
 	};
 }
 
+function resolveStepAbort(
+	options: ExecuteStepOptions,
+	stepRunId: string,
+	stepAbortReason: StepAbortReason | null,
+): ExecuteStepResult | null {
+	if (!stepAbortReason) {
+		return null;
+	}
+	if (stepAbortReason.type === 'canceled') {
+		abortIfCanceled(
+			options.db,
+			options.runId,
+			options.claim.workerId,
+			'canceled_during_step',
+		);
+		markCanceledStep(
+			options.db,
+			options.runId,
+			options.claim.workerId,
+			options.step,
+			stepRunId,
+		);
+		return {
+			canceledRun: getRun(options.db, options.runId),
+			shouldContinue: false,
+		};
+	}
+	if (stepAbortReason.type === 'claim_lost') {
+		throw new Error(stepAbortReason.message);
+	}
+	return null;
+}
+
 async function executeStep(
 	options: ExecuteStepOptions,
 ): Promise<ExecuteStepResult> {
@@ -1407,28 +1440,13 @@ async function executeStep(
 			);
 		} catch (error) {
 			abortMonitor.cleanup();
-			const stepAbortReason = abortMonitor.abortReason();
-			if (stepAbortReason?.type === 'canceled') {
-				abortIfCanceled(
-					options.db,
-					options.runId,
-					options.claim.workerId,
-					'canceled_during_step',
-				);
-				markCanceledStep(
-					options.db,
-					options.runId,
-					options.claim.workerId,
-					options.step,
-					stepRun.id,
-				);
-				return {
-					canceledRun: getRun(options.db, options.runId),
-					shouldContinue: false,
-				};
-			}
-			if (stepAbortReason?.type === 'claim_lost') {
-				throw new Error(stepAbortReason.message);
+			const abortedStep = resolveStepAbort(
+				options,
+				stepRun.id,
+				abortMonitor.abortReason(),
+			);
+			if (abortedStep) {
+				return abortedStep;
 			}
 			const failure = buildFailureMetadata(options.step, error);
 			if (canRetryStep(options.step, stepAttempt, failure.code)) {
@@ -1454,28 +1472,13 @@ async function executeStep(
 			);
 		}
 		abortMonitor.cleanup();
-		const stepAbortReason = abortMonitor.abortReason();
-		if (stepAbortReason?.type === 'canceled') {
-			abortIfCanceled(
-				options.db,
-				options.runId,
-				options.claim.workerId,
-				'canceled_during_step',
-			);
-			markCanceledStep(
-				options.db,
-				options.runId,
-				options.claim.workerId,
-				options.step,
-				stepRun.id,
-			);
-			return {
-				canceledRun: getRun(options.db, options.runId),
-				shouldContinue: false,
-			};
-		}
-		if (stepAbortReason?.type === 'claim_lost') {
-			throw new Error(stepAbortReason.message);
+		const abortedStep = resolveStepAbort(
+			options,
+			stepRun.id,
+			abortMonitor.abortReason(),
+		);
+		if (abortedStep) {
+			return abortedStep;
 		}
 
 		if (result.status === 'failed') {

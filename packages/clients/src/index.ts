@@ -1,10 +1,11 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import type {
-	AgentResult,
-	ChatMessage,
-	ClientRequest,
-	ExecutionClient,
-	Provider,
+import {
+	type AgentResult,
+	type ChatMessage,
+	type ClientRequest,
+	createChildProcessAbortController,
+	type ExecutionClient,
+	type Provider,
 } from '@ergon/shared';
 
 export interface SharedProviderConfig {
@@ -317,37 +318,16 @@ async function defaultSpawn(options: {
 		let stdout = '';
 		let stderr = '';
 		let settled = false;
-		let forceKillTimer: NodeJS.Timeout | undefined;
-
-		const cleanupAbort = () => {
-			if (options.signal) {
-				options.signal.removeEventListener('abort', abortHandler);
-			}
-			if (forceKillTimer) {
-				clearTimeout(forceKillTimer);
-				forceKillTimer = undefined;
-			}
-		};
-
-		const abortHandler = () => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			forceKillTimer = setTimeout(() => {
-				if (!child.killed) {
-					child.kill('SIGKILL');
-				}
-			}, 250);
-			reject(
-				options.signal?.reason instanceof Error
-					? options.signal.reason
-					: Object.assign(new Error('Client command aborted'), {
-							name: 'AbortError',
-						}),
-			);
-		};
+		const { cleanupAbort, registerAbort } = createChildProcessAbortController({
+			abortMessage: 'Client command aborted',
+			child,
+			isSettled: () => settled,
+			onAbort: reject,
+			setSettled: () => {
+				settled = true;
+			},
+			signal: options.signal,
+		});
 
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
@@ -378,12 +358,8 @@ async function defaultSpawn(options: {
 				stdout,
 			});
 		});
-		if (options.signal) {
-			if (options.signal.aborted) {
-				abortHandler();
-				return;
-			}
-			options.signal.addEventListener('abort', abortHandler, { once: true });
+		if (registerAbort()) {
+			return;
 		}
 
 		child.stdin.write(options.input);
