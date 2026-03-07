@@ -249,14 +249,20 @@ async function defaultSpawn(options: {
 			},
 			signal: options.signal,
 		});
-
-		const fail = (error: Error) => {
+		const settle = <T>(
+			handler: () => T,
+		): T | undefined => {
 			if (settled) {
-				return;
+				cleanupAbort();
+				return undefined;
 			}
 			settled = true;
 			cleanupAbort();
-			reject(error);
+			return handler();
+		};
+
+		const fail = (error: Error) => {
+			settle(() => reject(error));
 		};
 
 		child.stdout.on('data', (chunk) => {
@@ -267,18 +273,12 @@ async function defaultSpawn(options: {
 		});
 		child.on('error', fail);
 		child.on('close', (code, signal) => {
-			if (settled) {
-				cleanupAbort();
-				return;
-			}
-			settled = true;
-			cleanupAbort();
-			resolve({
+			settle(() => resolve({
 				code,
 				signal,
 				stderr,
 				stdout,
-			});
+			}));
 		});
 		if (registerAbort()) {
 			return;

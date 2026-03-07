@@ -95,15 +95,23 @@ export async function defaultSpawn(
 			},
 			signal: options.signal,
 		});
-
-		const fail = (error: Error) => {
+		const settle = <T>(
+			handler: () => T,
+		): T | undefined => {
 			if (settled) {
-				return;
+				cleanupAbort();
+				return undefined;
 			}
 			settled = true;
 			cleanupAbort();
-			child.kill('SIGTERM');
-			reject(error);
+			return handler();
+		};
+
+		const fail = (error: Error) => {
+			settle(() => {
+				child.kill('SIGTERM');
+				reject(error);
+			});
 		};
 
 		child.stdout.on('data', (chunk) => {
@@ -126,18 +134,12 @@ export async function defaultSpawn(
 		});
 		child.on('error', fail);
 		child.on('close', (code, signal) => {
-			if (settled) {
-				cleanupAbort();
-				return;
-			}
-			settled = true;
-			cleanupAbort();
-			resolve({
+			settle(() => resolve({
 				code,
 				signal,
 				stderr: decodeOutput(stderrChunks),
 				stdout: decodeOutput(stdoutChunks),
-			});
+			}));
 		});
 		if (registerAbort()) {
 			return;

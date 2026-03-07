@@ -328,6 +328,17 @@ async function defaultSpawn(options: {
 			},
 			signal: options.signal,
 		});
+		const settle = <T>(
+			handler: () => T,
+		): T | undefined => {
+			if (settled) {
+				cleanupAbort();
+				return undefined;
+			}
+			settled = true;
+			cleanupAbort();
+			return handler();
+		};
 
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
@@ -336,27 +347,15 @@ async function defaultSpawn(options: {
 			stderr += chunk.toString();
 		});
 		child.on('error', (error) => {
-			if (settled) {
-				cleanupAbort();
-				return;
-			}
-			settled = true;
-			cleanupAbort();
-			reject(error);
+			settle(() => reject(error));
 		});
 		child.on('close', (code, signal) => {
-			if (settled) {
-				cleanupAbort();
-				return;
-			}
-			settled = true;
-			cleanupAbort();
-			resolve({
+			settle(() => resolve({
 				code,
 				signal,
 				stderr,
 				stdout,
-			});
+			}));
 		});
 		if (registerAbort()) {
 			return;
