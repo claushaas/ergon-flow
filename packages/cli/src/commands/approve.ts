@@ -4,6 +4,7 @@ import {
 } from '@ergon/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
+import { assertInitializedProject } from '../project.js';
 import { assertValidStepId } from '../utils.js';
 
 export type ManualDecision = 'approve' | 'reject';
@@ -77,6 +78,7 @@ export function decideManualStep(
 	commandOptions: ApproveCommandOptions,
 ) {
 	const config = loadCliConfig(commandOptions.rootDir);
+	assertInitializedProject(config, 'approve');
 	const db = openStorageDb({
 		dbPath: commandOptions.dbPath ?? config.dbPath,
 	});

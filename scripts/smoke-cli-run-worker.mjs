@@ -34,7 +34,10 @@ const cliPath = fileURLToPath(
 const tempRoot = mkdtempSync(path.join(tmpdir(), 'ergon-cli-smoke-'));
 
 try {
-	const workflowsDir = path.join(tempRoot, 'library', 'workflows');
+	runCli(cliPath, tempRoot, ['template', 'list']);
+	runCli(cliPath, tempRoot, ['init']);
+
+	const workflowsDir = path.join(tempRoot, '.ergon', 'library', 'workflows');
 	mkdirSync(workflowsDir, { recursive: true });
 	writeFileSync(
 		path.join(workflowsDir, 'smoke.release.yaml'),
@@ -52,7 +55,6 @@ outputs:
 		'utf8',
 	);
 
-	runCli(cliPath, tempRoot, ['template', 'list']);
 	runCli(cliPath, tempRoot, ['workflow', 'list']);
 
 	const scheduledRun = JSON.parse(

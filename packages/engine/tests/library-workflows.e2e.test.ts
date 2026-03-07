@@ -1,5 +1,4 @@
 import {
-	cpSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -17,6 +16,7 @@ import type {
 import { listArtifacts, listEvents, openStorageDb } from '@ergon/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideManualStep } from '../../cli/src/commands/approve.js';
+import { initProject } from '../../cli/src/commands/init.js';
 import { getRunStatus, scheduleRun } from '../../cli/src/commands/run.js';
 import {
 	AgentExecutor,
@@ -172,13 +172,6 @@ function createTempRoot(): string {
 	return dir;
 }
 
-function copyWorkflowLibrary(rootDir: string): void {
-	const sourceDir = new URL('../../../library/workflows', import.meta.url);
-	const targetDir = path.join(rootDir, 'library', 'workflows');
-	mkdirSync(path.join(rootDir, 'repo'), { recursive: true });
-	cpSync(sourceDir, targetDir, { recursive: true });
-}
-
 function createExecutors(logs: string[]): ExecutorRegistry {
 	const clients = new Map<Provider, ExecutionClient>([
 		['claude-code', new StubExecutionClient('claude-code')],
@@ -239,7 +232,8 @@ describe('built-in workflow library E2E (phase 5)', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
 		const logs: string[] = [];
-		copyWorkflowLibrary(rootDir);
+		initProject({ rootDir });
+		mkdirSync(path.join(rootDir, 'repo'), { recursive: true });
 
 		const run = scheduleRun(scenario.id, {
 			dbPath,

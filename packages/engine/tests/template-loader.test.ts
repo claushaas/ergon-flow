@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
 	assertValidTemplate,
@@ -18,6 +19,12 @@ import {
 } from '../src/templating/index.js';
 
 const tempDirs: string[] = [];
+const REPO_ROOT = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	'..',
+	'..',
+	'..',
+);
 
 function createTempDir(): string {
 	const dir = mkdtempSync(path.join(tmpdir(), 'ergon-engine-c1-'));
@@ -91,7 +98,7 @@ describe('template loader (C1)', () => {
 	});
 
 	it('loads the built-in workflow library as valid templates', () => {
-		const templates = loadTemplatesFromWorkspace(process.cwd());
+		const templates = loadTemplatesFromWorkspace(REPO_ROOT);
 		expect(templates.length).toBeGreaterThan(0);
 		for (const loaded of templates) {
 			expect(validateTemplate(loaded.template).valid).toBe(true);

@@ -1,11 +1,37 @@
 {
+	"bugs": {
+		"url": "https://github.com/claushaas/ergon-flow/issues"
+	},
+	"description": "Shared types, enums, and contracts for Ergon Flow",
+	"engines": {
+		"node": ">=22"
+	},
+	"files": [
+		"dist"
+	],
+	"homepage": "https://github.com/claushaas/ergon-flow#readme",
+	"keywords": [
+		"ergon",
+		"workflow",
+		"runtime",
+		"shared-types"
+	],
+	"license": "MIT",
 	"main": "dist/index.js",
 	"name": "@ergon/shared",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"directory": "packages/shared",
+		"type": "git",
+		"url": "git+https://github.com/claushaas/ergon-flow.git"
+	},
 	"scripts": {
 		"build": "tsc --build",
 		"test": "vitest run --passWithNoTests --root ../.. packages/shared/tests"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",
-	"version": "0.1.0"
+	"version": "0.1.1"
 }

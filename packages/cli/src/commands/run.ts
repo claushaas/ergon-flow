@@ -14,11 +14,11 @@ import {
 } from '@ergon/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
+import { assertInitializedProject } from '../project.js';
 import {
 	assertValidWorkflowId,
 	hashFile,
 	resolvePathWithinBase,
-	resolveWorkflowTemplatesDir,
 } from '../utils.js';
 
 export interface RunCommandOptions {
@@ -33,13 +33,10 @@ export interface RunStatusCommandOptions {
 }
 
 function resolveWorkflowTemplatePath(
-	rootDir: string,
+	workflowsDir: string,
 	workflowId: string,
 ): string {
-	return path.join(
-		resolveWorkflowTemplatesDir(rootDir),
-		`${assertValidWorkflowId(workflowId)}.yaml`,
-	);
+	return path.join(workflowsDir, `${assertValidWorkflowId(workflowId)}.yaml`);
 }
 
 function parseInputs(
@@ -69,13 +66,14 @@ export function scheduleRun(
 	commandOptions: RunCommandOptions = {},
 ) {
 	const config = loadCliConfig(commandOptions.rootDir);
+	assertInitializedProject(config, 'run');
 	const db = openStorageDb({
 		dbPath: commandOptions.dbPath ?? config.dbPath,
 	});
 
 	try {
 		const templatePath = resolveWorkflowTemplatePath(
-			config.rootDir,
+			config.workflowsDir,
 			workflowId,
 		);
 		const { template } = loadAndValidateTemplateFromFile(templatePath);
@@ -124,6 +122,7 @@ export function getRunStatus(
 	stepRuns: ReturnType<typeof listStepRuns>;
 } {
 	const config = loadCliConfig(commandOptions.rootDir);
+	assertInitializedProject(config, 'run-status');
 	const db = openStorageDb({
 		dbPath: commandOptions.dbPath ?? config.dbPath,
 	});

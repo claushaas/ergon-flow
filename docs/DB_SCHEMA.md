@@ -26,6 +26,19 @@ PRAGMA busy_timeout = 5000;
 
 SQLite stores run state and artifact metadata.
 
+Project-local bootstrap assets live under:
+
+```text
+.ergon/
+  config.json
+  storage/ergon.db
+  library/
+```
+
+The CLI copies the embedded package library into `.ergon/library/` during
+`ergon init`, and runtime workflow registration records source paths relative to
+the initialized project root, typically under `.ergon/library/workflows/...`.
+
 Artifact files live under:
 
 ```text

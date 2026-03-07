@@ -42,14 +42,23 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Validate publish tarballs
+        run: pnpm pack:validate
+
+      - name: Smoke compiled CLI version
+        run: node packages/cli/dist/main.js --version
+
+      - name: Smoke compiled CLI help
+        run: node packages/cli/dist/main.js --help
+
       - name: Smoke compiled CLI
         run: node packages/cli/dist/main.js template list
 
-      - name: Validate built-in workflows
-        run: node packages/cli/dist/main.js workflow list
-
       - name: Smoke compiled CLI run + worker
         run: pnpm smoke:cli
+
+      - name: Smoke global install
+        run: pnpm smoke:global-install
 
       - name: Smoke root dev entrypoint
         run: pnpm dev template list

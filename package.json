@@ -1,20 +1,31 @@
 {
+	"description": "Deterministic workflow runtime for orchestrating agentic workflows",
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.5",
 		"@types/node": "^25.3.3",
 		"typescript": "^5.0.0",
 		"vitest": "^4.0.18"
 	},
+	"engines": {
+		"node": ">=22"
+	},
 	"name": "ergon-flow",
 	"packageManager": "pnpm@10.30.3",
 	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/claushaas/ergon-flow.git"
+	},
 	"scripts": {
 		"biome": "biome check --unsafe --write",
-		"build": "tsc --build",
+		"build": "tsc --build && pnpm --filter @ergon/storage run build:assets && pnpm --filter @ergon/cli run build:assets",
 		"dev": "pnpm --filter @ergon/cli build && node packages/cli/dist/main.js",
+		"pack:validate": "node scripts/validate-package-tarballs.mjs",
+		"release:version-check": "node scripts/validate-release-version.mjs",
 		"smoke:cli": "node scripts/smoke-cli-run-worker.mjs",
+		"smoke:global-install": "node scripts/smoke-global-install.mjs",
 		"test": "vitest run",
 		"typecheck": "tsc --build --pretty false"
 	},
-	"version": "0.1.0"
+	"version": "0.1.1"
 }
