@@ -2,16 +2,47 @@
 	"bin": {
 		"ergon": "dist/main.js"
 	},
+	"bugs": {
+		"url": "https://github.com/claushaas/ergon-flow/issues"
+	},
 	"dependencies": {
 		"@ergon/engine": "workspace:*",
 		"@ergon/storage": "workspace:*"
 	},
+	"description": "Globally installable CLI for Ergon Flow",
+	"engines": {
+		"node": ">=22"
+	},
+	"files": [
+		"dist"
+	],
+	"homepage": "https://github.com/claushaas/ergon-flow#readme",
+	"keywords": [
+		"ergon",
+		"workflow",
+		"cli",
+		"automation",
+		"agents"
+	],
+	"license": "MIT",
+	"main": "dist/main.js",
 	"name": "@ergon/cli",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"directory": "packages/cli",
+		"type": "git",
+		"url": "git+https://github.com/claushaas/ergon-flow.git"
+	},
 	"scripts": {
-		"build": "tsc --build",
-		"dev": "tsc --build && node dist/main.js",
+		"build": "tsc --build && pnpm run build:assets",
+		"build:assets": "node scripts/copy-library.mjs",
+		"dev": "pnpm run build && node dist/main.js",
+		"prepack": "pnpm run build",
 		"test": "vitest run --root ../.. packages/cli/tests"
 	},
 	"type": "module",
-	"version": "0.1.0"
+	"types": "dist/main.d.ts",
+	"version": "0.1.1"
 }

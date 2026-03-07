@@ -5,7 +5,7 @@ import {
 } from '@ergon/engine';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
-import { resolveWorkflowTemplatesDir } from '../utils.js';
+import { resolveEmbeddedTemplateDisplayPath } from '../utils.js';
 
 export interface TemplateListCommandOptions {
 	rootDir?: string;
@@ -22,7 +22,9 @@ export function listTemplates(
 	version: number;
 }> {
 	const config = loadCliConfig(commandOptions.rootDir);
-	const templatesDir = resolveWorkflowTemplatesDir(config.rootDir);
+	const templatesDir = config.initialized
+		? config.workflowsDir
+		: config.embeddedWorkflowsDir;
 
 	return loadTemplatesFromDir(templatesDir).map((loadedTemplate) => {
 		try {
@@ -32,7 +34,9 @@ export function listTemplates(
 			return {
 				description: validated.template.workflow.description,
 				id: validated.template.workflow.id,
-				path: path.relative(config.rootDir, validated.templatePath),
+				path: config.initialized
+					? path.relative(config.rootDir, validated.templatePath)
+					: resolveEmbeddedTemplateDisplayPath(validated.templatePath),
 				stepCount: validated.template.steps.length,
 				valid: true,
 				version: validated.template.workflow.version,
@@ -41,7 +45,9 @@ export function listTemplates(
 			return {
 				description: loadedTemplate.template.workflow.description,
 				id: loadedTemplate.template.workflow.id,
-				path: path.relative(config.rootDir, loadedTemplate.templatePath),
+				path: config.initialized
+					? path.relative(config.rootDir, loadedTemplate.templatePath)
+					: resolveEmbeddedTemplateDisplayPath(loadedTemplate.templatePath),
 				stepCount: loadedTemplate.template.steps.length,
 				valid: false,
 				version: loadedTemplate.template.workflow.version,

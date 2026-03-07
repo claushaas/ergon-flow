@@ -28,7 +28,14 @@ The CLI does not execute steps directly.
 
 ### Workflow
 
-A workflow is a YAML template stored under `library/workflows`.
+A workflow is a YAML template stored under the project-local
+`.ergon/library/workflows` directory after bootstrap.
+
+The CLI package also ships an embedded library used for:
+
+- `ergon init`
+- `ergon library sync`
+- `ergon template list` before a project is initialized
 
 It defines:
 
@@ -155,7 +162,7 @@ own `step_runs` row and attempt-local artifact files.
 If a worker lease expires while a run is `running`, another worker may reclaim
 the run.
 
-Recovery behavior in `v0.0.1`:
+Recovery behavior in `v0.1.1`:
 
 - the stale in-flight step is marked failed
 - the engine decides whether that step is retryable
@@ -189,6 +196,8 @@ The runtime propagates aborts to:
 
 Current CLI commands:
 
+- `init`
+- `library sync`
 - `template list`
 - `workflow list`
 - `run`
@@ -199,13 +208,27 @@ Current CLI commands:
 
 CLI responsibilities:
 
+- discover the nearest initialized `.ergon` project
+- bootstrap project-local state
+- refresh the managed local library
 - validate templates on the way in
 - schedule runs
 - inspect persisted state
 - submit manual decisions
 - submit cancellations
 
-## Explicit Non-Goals for v0.0.1
+Bootstrap and root-discovery rules:
+
+- if `ERGON_ROOT_DIR` is set, the CLI uses it as the project root
+- otherwise, the CLI walks upward from the current working directory until it
+  finds `.ergon/`
+- if no `.ergon/` exists, the current directory is treated as an uninitialized
+  location
+- `template list` may read from the embedded package library before init
+- `workflow list`, `run`, `run-status`, `worker start`, `approve` and `cancel`
+  require `ergon init`
+
+## Explicit Non-Goals for v0.1.1
 
 These are out of scope in the current release:
 

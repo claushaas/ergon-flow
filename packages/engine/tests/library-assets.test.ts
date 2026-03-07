@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PROVIDERS } from '@ergon/shared';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
@@ -25,7 +26,13 @@ interface AgentProfile {
 	settings?: unknown;
 }
 
-const LIBRARY_DIR = path.resolve(process.cwd(), 'library');
+const REPO_ROOT = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	'..',
+	'..',
+	'..',
+);
+const LIBRARY_DIR = path.join(REPO_ROOT, 'library');
 const AGENTS_DIR = path.join(LIBRARY_DIR, 'agents');
 const SCHEMAS_DIR = path.join(LIBRARY_DIR, 'schemas');
 
@@ -39,7 +46,7 @@ function readYamlFile(filePath: string): unknown {
 
 describe('library assets', () => {
 	it('keeps the built-in workflow library valid for the current runtime', () => {
-		const templates = loadTemplatesFromWorkspace(process.cwd());
+		const templates = loadTemplatesFromWorkspace(REPO_ROOT);
 		expect(templates.length).toBeGreaterThan(0);
 		for (const loaded of templates) {
 			expect(validateTemplate(loaded.template).valid).toBe(true);

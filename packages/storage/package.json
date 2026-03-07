@@ -1,11 +1,39 @@
 {
+	"bugs": {
+		"url": "https://github.com/claushaas/ergon-flow/issues"
+	},
+	"description": "SQLite storage layer for Ergon Flow workflow state",
+	"engines": {
+		"node": ">=22"
+	},
+	"files": [
+		"dist"
+	],
+	"homepage": "https://github.com/claushaas/ergon-flow#readme",
+	"keywords": [
+		"ergon",
+		"workflow",
+		"sqlite",
+		"storage"
+	],
+	"license": "MIT",
 	"main": "dist/index.js",
 	"name": "@ergon/storage",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"directory": "packages/storage",
+		"type": "git",
+		"url": "git+https://github.com/claushaas/ergon-flow.git"
+	},
 	"scripts": {
-		"build": "tsc --build",
+		"build": "tsc --build && pnpm run build:assets",
+		"build:assets": "node scripts/copy-migrations.mjs",
+		"prepack": "pnpm run build",
 		"test": "vitest run"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",
-	"version": "0.1.0"
+	"version": "0.1.1"
 }

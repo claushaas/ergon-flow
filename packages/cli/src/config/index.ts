@@ -1,9 +1,23 @@
 import path from 'node:path';
+import {
+	loadProjectLibraryMetadata,
+	type ProjectLibraryMetadata,
+	resolveProjectPaths,
+} from '../project.js';
 
 export interface CliConfig {
+	configPath: string;
 	dbPath: string;
+	embeddedLibraryDir: string;
+	embeddedWorkflowsDir: string;
+	ergonDir: string;
+	initialized: boolean;
+	libraryDir: string;
+	projectMetadata: ProjectLibraryMetadata | null;
 	providerConfigs: Record<string, unknown>;
 	rootDir: string;
+	storageDir: string;
+	workflowsDir: string;
 }
 
 function readStringEnv(name: string): string | undefined {
@@ -31,10 +45,20 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 	const openRouterBaseUrl = readStringEnv('OPENROUTER_BASE_URL');
 	const openRouterModel = readStringEnv('OPENROUTER_MODEL');
 	const openRouterSiteUrl = readStringEnv('OPENROUTER_SITE_URL');
-	const rootDir = path.resolve(ergonRootDir ?? cwd);
+	const project = resolveProjectPaths(cwd, ergonRootDir);
 
 	return {
-		dbPath: path.resolve(rootDir, ergonDbPath ?? '.ergon/storage/ergon.db'),
+		configPath: project.configPath,
+		dbPath: path.resolve(
+			project.rootDir,
+			ergonDbPath ?? '.ergon/storage/ergon.db',
+		),
+		embeddedLibraryDir: project.embeddedLibraryDir,
+		embeddedWorkflowsDir: project.embeddedWorkflowsDir,
+		ergonDir: project.ergonDir,
+		initialized: project.initialized,
+		libraryDir: project.libraryDir,
+		projectMetadata: loadProjectLibraryMetadata(project),
 		providerConfigs: {
 			'claude-code':
 				claudeCodeCommand || claudeCodeArgs
@@ -74,6 +98,8 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 					}
 				: undefined,
 		},
-		rootDir,
+		rootDir: project.rootDir,
+		storageDir: project.storageDir,
+		workflowsDir: project.workflowsDir,
 	};
 }

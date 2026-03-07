@@ -1,6 +1,7 @@
 import { cancelRun, openStorageDb } from '@ergon/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
+import { assertInitializedProject } from '../project.js';
 
 export interface CancelCommandOptions {
 	dbPath?: string;
@@ -18,6 +19,7 @@ export function cancelWorkflowRun(
 	commandOptions: CancelCommandOptions = {},
 ) {
 	const config = loadCliConfig(commandOptions.rootDir);
+	assertInitializedProject(config, 'cancel');
 	const db = openStorageDb({
 		dbPath: commandOptions.dbPath ?? config.dbPath,
 	});

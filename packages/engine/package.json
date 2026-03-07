@@ -1,17 +1,44 @@
 {
+	"bugs": {
+		"url": "https://github.com/claushaas/ergon-flow/issues"
+	},
 	"dependencies": {
 		"@ergon/clients": "workspace:*",
 		"@ergon/shared": "workspace:*",
 		"@ergon/storage": "workspace:*",
 		"yaml": "^2.8.2"
 	},
+	"description": "Workflow engine and worker runtime for Ergon Flow",
+	"engines": {
+		"node": ">=22"
+	},
+	"files": [
+		"dist"
+	],
+	"homepage": "https://github.com/claushaas/ergon-flow#readme",
+	"keywords": [
+		"ergon",
+		"workflow",
+		"engine",
+		"runtime",
+		"worker"
+	],
+	"license": "MIT",
 	"main": "dist/index.js",
 	"name": "@ergon/engine",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"directory": "packages/engine",
+		"type": "git",
+		"url": "git+https://github.com/claushaas/ergon-flow.git"
+	},
 	"scripts": {
 		"build": "tsc --build",
 		"test": "vitest run --root ../.. packages/engine/tests"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",
-	"version": "0.1.0"
+	"version": "0.1.1"
 }

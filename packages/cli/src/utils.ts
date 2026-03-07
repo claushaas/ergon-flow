@@ -13,6 +13,17 @@ export function resolveWorkflowTemplatesDir(rootDir: string): string {
 	return path.join(rootDir, 'library', 'workflows');
 }
 
+export function resolveEmbeddedTemplateDisplayPath(
+	templatePath: string,
+): string {
+	return path.posix.join(
+		'embedded',
+		'library',
+		'workflows',
+		path.basename(templatePath),
+	);
+}
+
 export function assertValidWorkflowId(workflowId: string): string {
 	if (!WORKFLOW_ID_PATTERN.test(workflowId)) {
 		throw new Error(
