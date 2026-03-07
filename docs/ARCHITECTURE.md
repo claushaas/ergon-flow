@@ -210,7 +210,7 @@ Cancellation is allowed from:
 
 ## Current Architectural Limits
 
-These limits are deliberate in `v0.1.1`:
+These limits are deliberate in `v0.1.2`:
 
 - execution is sequential, not parallel DAG scheduling
 - `library/agents` is not loaded by the runtime

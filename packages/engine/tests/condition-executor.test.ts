@@ -1,4 +1,4 @@
-import type { ConditionStepDefinition } from '@claushaas/shared';
+import type { ConditionStepDefinition } from '@claushaas/ergon-shared';
 import { describe, expect, it } from 'vitest';
 import { ConditionExecutor } from '../src/executors/condition.js';
 import { createExecutionContext } from '../src/executors/index.js';

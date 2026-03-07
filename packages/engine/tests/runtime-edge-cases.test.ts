@@ -12,7 +12,7 @@ import type {
 	ClientRequest,
 	ExecutionClient,
 	Provider,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import {
 	claimNextRun,
 	createRun,
@@ -20,7 +20,7 @@ import {
 	listStepRuns,
 	openStorageDb,
 	registerWorkflow,
-} from '@claushaas/storage';
+} from '@claushaas/ergon-storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentExecutor, ExecutorRegistry, executeRun } from '../src/index.js';
 

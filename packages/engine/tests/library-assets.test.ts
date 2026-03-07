@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROVIDERS } from '@claushaas/shared';
+import { PROVIDERS } from '@claushaas/ergon-shared';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import {

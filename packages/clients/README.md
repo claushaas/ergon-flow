@@ -1,11 +1,11 @@
-# @claushaas/clients
+# @claushaas/ergon-clients
 
 Provider adapters for Ergon Flow execution clients.
 
 Install:
 
 ```bash
-pnpm add @claushaas/clients
+pnpm add @claushaas/ergon-clients
 ```
 
 Repository:

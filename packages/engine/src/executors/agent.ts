@@ -4,7 +4,7 @@ import type {
 	ArtifactType,
 	ExecutionClient,
 	Provider,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import { renderStepRequestPayload } from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 

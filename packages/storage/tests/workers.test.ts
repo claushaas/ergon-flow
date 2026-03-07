@@ -42,7 +42,7 @@ describe('worker repository', () => {
 			hostname: 'host-b',
 			id: 'worker-a',
 			lastBeatAt: '2026-03-06T12:00:05.000Z',
-			meta: { version: '0.1.1' },
+			meta: { version: '0.1.2' },
 			pid: 4321,
 		});
 		expect(heartbeat.hostname).toBe('host-b');
@@ -51,7 +51,7 @@ describe('worker repository', () => {
 
 		const stored = getWorker(db, 'worker-a');
 		expect(stored?.started_at).toBe('2026-03-06T12:00:00.000Z');
-		expect(stored?.meta_json).toBe(JSON.stringify({ version: '0.1.1' }));
+		expect(stored?.meta_json).toBe(JSON.stringify({ version: '0.1.2' }));
 
 		db.close();
 	});

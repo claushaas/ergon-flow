@@ -1,4 +1,4 @@
-import type { ConditionStepDefinition } from '@claushaas/shared';
+import type { ConditionStepDefinition } from '@claushaas/ergon-shared';
 import { interpolateTemplateString } from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 

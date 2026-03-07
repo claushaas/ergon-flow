@@ -4,7 +4,7 @@ import type {
 	ClientRequest,
 	ExecutionClient,
 	Provider,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentExecutor } from '../src/executors/agent.js';
 import { createExecutionContext } from '../src/executors/index.js';

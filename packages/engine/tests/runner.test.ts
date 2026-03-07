@@ -12,7 +12,7 @@ import type {
 	ExecStepDefinition,
 	ExecutionClient,
 	Provider,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import {
 	appendEvent,
 	claimNextRun,
@@ -28,7 +28,7 @@ import {
 	stepAttemptDir,
 	updateRunCursor,
 	updateStepRunStatus,
-} from '@claushaas/storage';
+} from '@claushaas/ergon-storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
 	ExecutionContext,

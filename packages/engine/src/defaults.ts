@@ -2,7 +2,7 @@ import {
 	type CliClientOptions,
 	createClientRegistry,
 	type ProviderConfigMap,
-} from '@claushaas/clients';
+} from '@claushaas/ergon-clients';
 import { AgentExecutor } from './executors/agent.js';
 import { ArtifactExecutor } from './executors/artifact.js';
 import { ConditionExecutor } from './executors/condition.js';

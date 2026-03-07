@@ -5,7 +5,7 @@ import type {
 	ErrorCode,
 	StepDefinition,
 	WorkflowTemplate,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import {
 	appendEvent,
 	claimNextRun,
@@ -18,7 +18,7 @@ import {
 	renewLease,
 	updateStepRunStatus,
 	type WorkflowRunRow,
-} from '@claushaas/storage';
+} from '@claushaas/ergon-storage';
 import type { ExecutorRegistry } from './executors/index.js';
 import { executeRun } from './runner.js';
 import { loadAndValidateTemplateFromFile } from './templating/index.js';

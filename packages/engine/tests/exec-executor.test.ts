@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import type { ExecStepDefinition } from '@claushaas/shared';
+import type { ExecStepDefinition } from '@claushaas/ergon-shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	DEFAULT_EXEC_MAX_OUTPUT_BYTES,

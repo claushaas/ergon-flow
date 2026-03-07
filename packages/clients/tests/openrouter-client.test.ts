@@ -1,4 +1,4 @@
-import type { ClientRequest } from '@claushaas/shared';
+import type { ClientRequest } from '@claushaas/ergon-shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OpenRouterModelClient } from '../src/index.js';
 

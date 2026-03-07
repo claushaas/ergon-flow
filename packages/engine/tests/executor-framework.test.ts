@@ -1,7 +1,7 @@
 import type {
 	ExecStepDefinition,
 	ManualStepDefinition,
-} from '@claushaas/shared';
+} from '@claushaas/ergon-shared';
 import { describe, expect, it } from 'vitest';
 import {
 	createExecutionContext,

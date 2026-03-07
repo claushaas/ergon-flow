@@ -19,7 +19,7 @@ The runtime is designed around auditability:
 - every artifact is stored on disk and indexed in SQLite
 - every significant transition is appended to `events`
 
-## What v0.1.1 Includes
+## What v0.1.2 Includes
 
 The current release scope is pragmatic and explicit:
 
@@ -51,7 +51,7 @@ Supported providers:
 - `claude-code`
 - `openclaw`
 
-## What v0.1.1 Does Not Include
+## What v0.1.2 Does Not Include
 
 These repository assets exist, but they are not enforced by the runtime yet:
 
@@ -73,7 +73,7 @@ Supported public runtime:
 Install the CLI globally:
 
 ```bash
-pnpm add -g @claushaas/cli
+pnpm add -g @claushaas/ergon-cli
 ```
 
 Bootstrap a project-local Ergon workspace:
@@ -215,7 +215,7 @@ The repository treats these documents as source of truth:
 
 ## Release Flow
 
-Public releases are cut from `main` using Git tags such as `v0.1.1`.
+Public releases are cut from `main` using Git tags such as `v0.1.2`.
 
 Before tagging a release:
 
@@ -230,8 +230,8 @@ pnpm smoke:global-install
 ```
 
 The publish workflow validates the tag version, verifies the tarballs, and then
-publishes `@claushaas/shared`, `@claushaas/clients`, `@claushaas/storage`,
-`@claushaas/engine`, and `@claushaas/cli` in dependency order.
+publishes `@claushaas/ergon-shared`, `@claushaas/ergon-clients`, `@claushaas/ergon-storage`,
+`@claushaas/ergon-engine`, and `@claushaas/ergon-cli` in dependency order.
 
 ## Release Readiness
 
