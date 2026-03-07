@@ -1,578 +1,291 @@
-# TEMPLATE_SPEC
+# Ergon Flow Workflow Template Specification
 
-TODO: Fill documentation.
+Version: `0.2`
 
-# Ergon Flow — Workflow Template Specification (TEMPLATE_SPEC)
+This document describes the workflow template contract enforced by the current
+runtime.
 
-Version: 0.1  
-Status: Draft
+Templates live under `library/workflows` and are written in YAML.
 
----
+## Top-Level Shape
 
-# 1. Purpose
+Required sections:
 
-This document defines the **declarative language used to describe workflows in Ergon Flow**.
+- `workflow`
+- `steps`
 
-Workflows are written as **YAML templates** and serve as the primary interface between:
+Optional sections:
 
-- workflow authors
-- the workflow engine
-- execution clients
-- storage and artifact systems
-
-The template system defines:
-
-- the structure of workflows
-- the contract for steps
-- how inputs and artifacts flow between steps
-- execution strategies and retry policies
-
-The goal is to make workflows:
-
-- **deterministic**
-- **inspectable**
-- **versionable**
-- **reproducible**
-
----
-
-# 2. Design Principles
-
-The template language follows several principles.
-
-### Deterministic Execution
-
-A workflow definition must fully describe its execution behavior.
-
-No hidden runtime decisions should exist.
-
----
-
-### Explicit Data Flow
-
-All information passed between steps must occur through:
-
-```
-inputs
-artifacts
-outputs
-```
-
----
-
-### Provider Independence
-
-Templates do not bind workflows to a single model ecosystem.
-
-Instead they reference **providers and execution clients**.
-
----
-
-### Minimal Syntax
-
-Templates must remain readable and writable by engineers.
-
-Complex orchestration logic belongs in the runtime, not the template language.
-
----
-
-# 3. File Format
-
-Workflow templates are written in YAML.
+- `inputs`
+- `outputs`
 
 Example:
 
-```
-workflow:
-  id: code.refactor
-  version: 1
-
-steps:
-  - id: analyze
-    kind: agent
-    provider: openrouter
-    model: deepseek/deepseek-v3.2
-
-  - id: plan
-    kind: agent
-    provider: openrouter
-    model: moonshotai/kimi-k2.5
-
-  - id: patch
-    kind: agent
-    provider: codex
-```
-
----
-
-# 4. Top-Level Structure
-
-Every template must contain the following sections.
-
-```
-workflow
-inputs
-steps
-outputs
-```
-
-Example:
-
-```
+```yaml
 workflow:
   id: code.refactor
   version: 1
   description: Refactor a codebase safely
 
 inputs:
-  repository: string
+  repo_path:
+    type: string
 
 steps:
   - id: analyze
     kind: agent
+    provider: openrouter
+    prompt: "Analyze {{ inputs.repo_path }}"
 
 outputs:
-  patch: artifact.patch
+  review: artifacts.review
 ```
 
----
+## Workflow Metadata
 
-# 5. Workflow Metadata
+Supported fields in `workflow`:
 
-The `workflow` section defines metadata.
+- `id` (required)
+- `version` (required integer)
+- `description`
+- `author`
+- `tags`
 
-```
-workflow:
-  id: string
-  version: integer
-  description: string
-  author: string
-  tags: []
-```
+## Inputs
 
-### Fields
+`inputs` is a map of input names to input specs.
 
-| Field | Required | Description |
-|-----|-----|-----|
-id | yes | Unique workflow identifier |
-version | yes | Version number |
-description | no | Human description |
-author | no | Template author |
-tags | no | Categories |
+Supported input types:
 
----
+- `string`
+- `number`
+- `boolean`
+- `object`
+- `array`
 
-# 6. Inputs
+Each input spec supports:
 
-Inputs define parameters provided when a workflow starts.
+- `type` (required)
+- `description`
+- `default`
+- `required`
 
-Example:
+Runtime behavior:
 
-```
-inputs:
-  repository: string
-  branch: string
-  task: string
-```
+- defaults are materialized when the run is scheduled
+- unknown inputs are rejected
+- missing required inputs are rejected
+- input values are type-checked before `createRun(...)`
 
-Supported primitive types:
+## Step Ordering
 
-- string
-- number
-- boolean
-- object
-- array
+Workflows execute sequentially in template order.
 
-Inputs become available to steps as:
+`depends_on` is allowed, but only for already-declared earlier steps. The
+current runtime does not support forward references or parallel DAG execution.
 
-```
-{{ inputs.repository }}
-```
+## Common Step Fields
 
----
+Every step supports:
 
-# 7. Steps
+- `id`
+- `kind`
+- `name`
+- `description`
+- `depends_on`
+- `retry`
+- `timeout_ms`
 
-Steps define the execution sequence.
+`timeout_ms` must be a positive integer.
 
-```
-steps:
-  - id: analyze
-    kind: agent
-```
+`retry` supports:
 
-### Step Properties
+- `max_attempts`
+- optional `on` list of error codes
 
-| Field | Required | Description |
-|------|------|------|
-id | yes | Step identifier |
-kind | yes | Step type |
-name | no | Human readable name |
-description | no | Step explanation |
-depends_on | no | Dependency list |
-retry | no | Retry policy for recoverable failures |
-timeout_ms | no | Positive integer timeout in milliseconds |
+## Supported Step Kinds
 
-Example:
+### `agent`
 
-```
-steps:
-  - id: patch
-    kind: agent
-    depends_on: [plan]
-```
+Required fields:
 
----
+- `id`
+- `kind: agent`
+- `provider`
 
-# 8. Step Types
+Optional fields:
 
-Ergon Flow supports several step types.
+- `model`
+- `agent`
+- `prompt`
+- `output`
+- `strategy`
 
-```
-agent
-exec
-notify
-manual
-condition
-artifact
-```
+Supported providers:
 
-Each type has a specific contract.
+- `openrouter`
+- `ollama`
+- `codex`
+- `claude-code`
+- `openclaw`
 
----
+`output` supports:
 
-# 9. Agent Step
+- `name`
+- `type`
 
-Agent steps invoke reasoning systems.
+Supported output types:
 
-Example:
+- `analysis`
+- `json`
+- `plan`
+- `text`
 
-```
-- id: analyze
-  kind: agent
-  provider: openrouter
-  model: deepseek/deepseek-v3.2
-```
+### `exec`
 
-### Fields
+Required fields:
 
-| Field | Required | Description |
-|-----|-----|-----|
-provider | yes | execution provider |
-model | optional | model identifier |
-agent | optional | external agent name |
-prompt | optional | prompt template |
+- `id`
+- `kind: exec`
+- `command`
 
-### Supported Providers
+Optional fields:
 
-Agent steps may target:
+- `cwd`
+- `env`
 
-Model providers:
+The runtime captures:
 
-- openrouter
-- ollama
+- `<step_id>.stdout`
+- `<step_id>.stderr`
+- `<step_id>.result`
 
-External agents:
+### `condition`
 
-- codex
-- claude-code
-- openclaw
+Required fields:
 
-Example using Codex:
+- `id`
+- `kind: condition`
+- `expression`
 
-```
-- id: patch
-  kind: agent
-  provider: codex
-```
+The expression is rendered through interpolation and then coerced by truthiness:
 
-Example using Claude Code:
+- empty string -> false
+- `false`, `null`, `undefined`, `0` -> false
+- non-empty string -> true
+- JSON arrays/objects -> false only when empty
 
-```
-- id: review
-  kind: agent
-  provider: claude-code
-```
+When false, dependents are skipped by the engine.
 
-Example using OpenClaw:
+### `manual`
 
-```
-- id: coder
-  kind: agent
-  provider: openclaw
-```
+Required fields:
 
----
+- `id`
+- `kind: manual`
 
-# 10. Exec Step
+Optional fields:
 
-Exec steps run local commands.
+- `message`
 
-Example:
+`message` is interpolated before the run is parked in `waiting_manual`.
 
-```
-- id: run-tests
-  kind: exec
-  command: npm test
-```
+### `notify`
 
-### Fields
+Required fields:
 
-| Field | Required |
-|------|------|
-command | yes |
-cwd | optional |
-env | optional |
-timeout_ms | optional |
+- `id`
+- `kind: notify`
+- `channel`
+- `message`
 
-Runtime contract:
+Optional fields:
 
-- when `timeout_ms` is set, the worker aborts the running step after the
-  configured deadline
-- exec cancellation is cooperative first (`SIGTERM`) and escalates to
-  `SIGKILL` if the child process does not exit promptly
-
----
-
-# 11. Notify Step
-
-Notify steps send messages to external systems.
-
-Example:
-
-```
-- id: notify
-  kind: notify
-  channel: stdout
-  message: "Workflow completed"
-```
+- `target`
 
 Supported channels:
 
-- stdout
-- webhook
-- openclaw
+- `stdout`
+- `webhook`
+- `openclaw`
 
----
+`channel`, `target` and `message` are interpolated.
 
-# 12. Manual Step
+Runtime constraints:
 
-Manual steps pause execution until human approval.
+- `webhook` requires a public `https` URL
+- `openclaw` requires a non-empty target that does not start with `-`
 
-Example:
+### `artifact`
 
-```
-- id: approval
-  kind: manual
-  message: "Approve patch?"
-```
+Required fields:
 
-Execution halts until approval.
+- `id`
+- `kind: artifact`
+- `input`
+- `operation`
 
----
+Supported operations:
 
-# 13. Condition Step
+- `copy`
+- `rename:<target>`
+- `extract:<fieldPath>[:target]`
+- `merge:<artifactA,artifactB,...>[:target]`
 
-Condition steps allow conditional branching.
+## Interpolation Contract
 
-Example:
+Allowed sources:
 
-```
-- id: check-tests
-  kind: condition
-  expression: "{{ artifacts.tests_passed }}"
-```
+- `inputs.<name>`
+- `artifacts.<name>`
 
----
+The runtime intentionally does not support `steps.*` references.
 
-# 14. Artifact Step
+Interpolation is used in:
 
-Artifact steps transform stored artifacts.
+- agent prompts
+- exec commands, cwd and env values
+- manual messages
+- notify channel, target and message
+- workflow outputs
 
-Example:
+Unknown references are rejected during validation.
 
-```
-- id: format-patch
-  kind: artifact
-  input: patch
-  operation: format
-```
+Artifact names may contain `.` and are resolved accordingly, for example:
 
----
+- `artifacts.tests.exec.stdout`
+- `artifacts.deps.scan.stdout`
 
-# 15. Artifacts
+## Workflow Outputs
 
-Artifacts are structured outputs produced by steps.
+`outputs` is an optional map of names to references or interpolated strings.
 
-Example:
+Supported forms:
 
-```
-artifacts:
-  patch:
-    type: patch
-```
+- `artifacts.review`
+- `inputs.new_branch`
+- `{{ artifacts.review.pr_title }}`
+- `branch={{ inputs.new_branch }}`
 
-Artifact types may include:
+Bare references to `artifacts.*` and `inputs.*` are supported directly.
 
-- patch
-- plan
-- analysis
-- text
-- json
+## Validation Rules
 
-Artifacts become available to later steps.
+The loader rejects templates that have:
 
----
+- duplicate step ids
+- invalid `depends_on` references
+- unsupported providers
+- unsupported interpolation sources
+- semantic references to unknown inputs or artifacts
+- invalid `timeout_ms`
+- malformed top-level sections
 
-# 16. Outputs
+## Current Limitations
 
-Outputs define the final workflow results.
+These are deliberate in `v0.0.1`:
 
-Example:
-
-```
-outputs:
-  patch: artifacts.patch
-  branch: inputs.new_branch
-```
-
-Runtime contract:
-
-- bare references such as `artifacts.patch` and `inputs.new_branch` are valid
-- `{{ ... }}` interpolation is also valid
-- output references may drill into object fields, for example
-  `artifacts.review.summary`
-
----
-
-# 17. Retry Strategy
-
-Steps may include retry logic.
-
-Example:
-
-```
-retry:
-  max_attempts: 3
-  on:
-    - schema_invalid
-    - patch_apply_failed
-```
-
----
-
-# 18. Execution Strategy
-
-Steps may define provider strategies.
-
-Example:
-
-```
-strategy:
-  ladder:
-    - provider: openrouter
-      model: deepseek/deepseek-v3.2
-    - provider: openrouter
-      model: moonshotai/kimi-k2.5
-    - provider: codex
-```
-
-Initial implementations may ignore advanced strategy fields.
-
----
-
-# 19. Variable Interpolation
-
-Templates support variable interpolation.
-
-Examples:
-
-```
-{{ inputs.repository }}
-{{ artifacts.plan }}
-{{ artifacts.tests.exec.stdout }}
-```
-
-Runtime contract:
-
-- supported sources are `inputs.*` and `artifacts.*`
-- references to unknown inputs or artifacts are rejected at validation time
-- artifact names may contain dots; the resolver matches the longest artifact
-  name first and then drills into nested object fields
-
----
-
-# 20. Example Full Workflow
-
-```
-workflow:
-  id: code.refactor
-  version: 1
-
-inputs:
-  repository: string
-
-steps:
-
-  - id: analyze
-    kind: agent
-    provider: openrouter
-    model: deepseek/deepseek-v3.2
-
-  - id: plan
-    kind: agent
-    provider: openrouter
-    model: moonshotai/kimi-k2.5
-
-  - id: patch
-    kind: agent
-    provider: codex
-
-  - id: run-tests
-    kind: exec
-    command: npm test
-
-  - id: review
-    kind: agent
-    provider: claude-code
-
-outputs:
-  patch: artifacts.patch
-```
-
----
-
-# 21. Versioning
-
-Templates must include a version.
-
-This allows safe evolution of workflows.
-
----
-
-# 22. Validation
-
-Templates are validated before execution.
-
-Validation checks:
-
-- required fields
-- step dependencies
-- provider configuration
-- artifact references
-
----
-
-# 23. Future Extensions
-
-Future versions may introduce:
-
-- parallel step execution
-- dynamic provider scheduling
-- conditional graphs
-- reusable subworkflows
-- plugin step types
-
----
-
-# End of TEMPLATE SPEC
+- no `steps.*` interpolation
+- no parallel DAG scheduling
+- no runtime loading of `library/agents`
+- no runtime schema validation against `library/schemas`
