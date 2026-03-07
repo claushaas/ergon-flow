@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -18,9 +24,12 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideManualStep } from '../src/commands/approve.js';
 import { cancelWorkflowRun } from '../src/commands/cancel.js';
+import { initProject } from '../src/commands/init.js';
+import { syncLibrary } from '../src/commands/library.js';
 import { getRunStatus, scheduleRun } from '../src/commands/run.js';
 import { listTemplates } from '../src/commands/template.js';
 import { syncWorkflows } from '../src/commands/workflow.js';
+import { loadCliConfig } from '../src/config/index.js';
 
 const tempDirs: string[] = [];
 
@@ -35,9 +44,13 @@ function writeWorkflow(
 	fileName: string,
 	content: string,
 ): void {
-	const workflowDir = path.join(rootDir, 'library', 'workflows');
+	const workflowDir = path.join(rootDir, '.ergon', 'library', 'workflows');
 	mkdirSync(workflowDir, { recursive: true });
 	writeFileSync(path.join(workflowDir, fileName), content, 'utf8');
+}
+
+function initializeProjectRoot(rootDir: string): void {
+	initProject({ rootDir });
 }
 
 afterEach(() => {
@@ -49,6 +62,7 @@ afterEach(() => {
 describe('core CLI commands (H1)', () => {
 	it('lists templates from library/workflows and validates them', () => {
 		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.test.yaml',
@@ -64,21 +78,31 @@ steps:
 `,
 		);
 
-		expect(listTemplates({ rootDir })).toEqual([
-			{
-				description: 'Test workflow',
-				id: 'code.test',
-				path: 'library/workflows/code.test.yaml',
-				stepCount: 1,
-				valid: true,
-				version: 1,
-			},
-		]);
+		expect(listTemplates({ rootDir })).toContainEqual({
+			description: 'Test workflow',
+			id: 'code.test',
+			path: '.ergon/library/workflows/code.test.yaml',
+			stepCount: 1,
+			valid: true,
+			version: 1,
+		});
+	});
+
+	it('lists embedded templates before project initialization', () => {
+		const rootDir = createTempRoot();
+
+		expect(listTemplates({ rootDir })).not.toHaveLength(0);
+		expect(
+			listTemplates({ rootDir }).every((template) =>
+				template.path.startsWith('embedded/library/workflows/'),
+			),
+		).toBe(true);
 	});
 
 	it('syncs workflows into storage and lists them', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.sync.yaml',
@@ -94,18 +118,27 @@ steps:
 		);
 
 		const workflows = syncWorkflows({ dbPath, rootDir });
-		expect(workflows).toHaveLength(1);
-		expect(workflows[0]?.id).toBe('code.sync');
-		expect(workflows[0]?.version).toBe(2);
+		expect(workflows).toContainEqual(
+			expect.objectContaining({
+				id: 'code.sync',
+				version: 2,
+			}),
+		);
 
 		const db = openStorageDb({ dbPath });
-		expect(listWorkflows(db)).toHaveLength(1);
+		expect(listWorkflows(db)).toContainEqual(
+			expect.objectContaining({
+				id: 'code.sync',
+				version: 2,
+			}),
+		);
 		db.close();
 	});
 
 	it('schedules a run and reports run status', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.run.yaml',
@@ -141,6 +174,7 @@ steps:
 	it('materializes workflow input defaults when scheduling a run', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.defaults.yaml',
@@ -181,6 +215,7 @@ steps:
 	it('rejects unknown, missing and invalid workflow inputs when scheduling', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.inputs.yaml',
@@ -223,6 +258,7 @@ steps:
 	it('accepts --inputs as a JSON file path', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.file-input.yaml',
@@ -256,6 +292,7 @@ steps:
 	it('rejects workflow ids with path traversal sequences', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 
 		expect(() =>
 			scheduleRun('../secrets', {
@@ -268,6 +305,7 @@ steps:
 	it('rejects input file paths that escape the workspace root', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.secure-input.yaml',
@@ -294,15 +332,118 @@ steps:
 		).toThrow('Invalid inputs path');
 	});
 
+	it('requires project initialization for stateful commands', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+
+		expect(() => syncWorkflows({ dbPath, rootDir })).toThrow(
+			'Run "ergon init" first',
+		);
+		expect(() =>
+			scheduleRun('code.run', {
+				dbPath,
+				rootDir,
+			}),
+		).toThrow('Run "ergon init" first');
+		expect(() => getRunStatus('run-1', { dbPath, rootDir })).toThrow(
+			'Run "ergon init" first',
+		);
+	});
+
+	it('initializes a local .ergon project and records machine metadata', () => {
+		const rootDir = createTempRoot();
+
+		const result = initProject({ rootDir });
+		const configPath = path.join(rootDir, '.ergon', 'config.json');
+		const parsedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as {
+			cli_version: string;
+			format_version: number;
+			initialized_at: string;
+			library_files: Record<string, string>;
+			library_version: string;
+		};
+
+		expect(result.rootDir).toBe(rootDir);
+		expect(result.configPath).toBe(configPath);
+		expect(parsedConfig.format_version).toBe(1);
+		expect(parsedConfig.cli_version).toBe('0.1.1');
+		expect(parsedConfig.library_version).toBe('0.1.1');
+		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
+		expect(Object.keys(parsedConfig.library_files)).toContain(
+			'workflows/code.refactor.yaml',
+		);
+	});
+
+	it('discovers the nearest initialized project root from nested directories', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+		const nestedDir = path.join(rootDir, 'repo', 'src', 'components');
+		mkdirSync(nestedDir, { recursive: true });
+
+		const config = loadCliConfig(nestedDir);
+
+		expect(config.rootDir).toBe(rootDir);
+		expect(config.initialized).toBe(true);
+		expect(config.workflowsDir).toBe(
+			path.join(rootDir, '.ergon', 'library', 'workflows'),
+		);
+	});
+
+	it('syncs the local library without overwriting modified files by default', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+		const workflowPath = path.join(
+			rootDir,
+			'.ergon',
+			'library',
+			'workflows',
+			'code.refactor.yaml',
+		);
+		writeFileSync(workflowPath, '# locally modified\n', 'utf8');
+
+		const summary = syncLibrary({ rootDir });
+
+		expect(summary.conflicted).toContain('workflows/code.refactor.yaml');
+		expect(readFileSync(workflowPath, 'utf8')).toBe('# locally modified\n');
+	});
+
+	it('force-syncs the local library and refreshes machine metadata', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+		const workflowPath = path.join(
+			rootDir,
+			'.ergon',
+			'library',
+			'workflows',
+			'code.refactor.yaml',
+		);
+		writeFileSync(workflowPath, '# locally modified\n', 'utf8');
+
+		const summary = syncLibrary({ force: true, rootDir });
+		const configPath = path.join(rootDir, '.ergon', 'config.json');
+		const parsedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as {
+			library_files: Record<string, string>;
+			library_version: string;
+		};
+
+		expect(summary.updated).toContain('workflows/code.refactor.yaml');
+		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
+		expect(parsedConfig.library_version).toBe('0.1.1');
+		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
+			expect.any(String),
+		);
+	});
+
 	it('approves a waiting manual step and requeues the run', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		const db = openStorageDb({ dbPath });
 
 		registerWorkflow(db, {
 			hash: 'hash-approve-v1',
 			id: 'code.approve',
-			sourcePath: 'library/workflows/code.approve.yaml',
+			sourcePath: '.ergon/library/workflows/code.approve.yaml',
 			version: 1,
 		});
 		const run = createRun(
@@ -345,12 +486,13 @@ steps:
 	it('rejects a waiting manual step and fails the run', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		const db = openStorageDb({ dbPath });
 
 		registerWorkflow(db, {
 			hash: 'hash-reject-v1',
 			id: 'code.reject',
-			sourcePath: 'library/workflows/code.reject.yaml',
+			sourcePath: '.ergon/library/workflows/code.reject.yaml',
 			version: 1,
 		});
 		const run = createRun(
@@ -399,6 +541,7 @@ steps:
 	it('cancels a queued run and appends workflow_canceled', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		writeWorkflow(
 			rootDir,
 			'code.cancel.yaml',
@@ -432,12 +575,13 @@ steps:
 	it('cancels a waiting manual run without mutating step state', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		const db = openStorageDb({ dbPath });
 
 		registerWorkflow(db, {
 			hash: 'hash-cancel-manual-v1',
 			id: 'code.cancel.manual',
-			sourcePath: 'library/workflows/code.cancel.manual.yaml',
+			sourcePath: '.ergon/library/workflows/code.cancel.manual.yaml',
 			version: 1,
 		});
 		const run = createRun(
@@ -476,12 +620,13 @@ steps:
 	it('rejects manual approve/reject after the run has already been canceled', () => {
 		const rootDir = createTempRoot();
 		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
 		const db = openStorageDb({ dbPath });
 
 		registerWorkflow(db, {
 			hash: 'hash-cancel-decision-v1',
 			id: 'code.cancel.decision',
-			sourcePath: 'library/workflows/code.cancel.decision.yaml',
+			sourcePath: '.ergon/library/workflows/code.cancel.decision.yaml',
 			version: 1,
 		});
 		const run = createRun(

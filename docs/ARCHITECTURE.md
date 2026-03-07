@@ -29,7 +29,10 @@ CLI
 Responsibilities:
 
 - parse CLI arguments
+- discover the nearest initialized `.ergon` project
 - load local configuration from env
+- bootstrap `.ergon/`
+- sync the managed local library
 - validate and schedule workflows
 - inspect runs
 - submit manual decisions
@@ -49,6 +52,10 @@ Responsibilities:
 - stage artifact files before metadata finalization
 
 Built-in executors live here.
+
+The engine executes templates from the project-local `.ergon/library/workflows`
+tree. The repository-root `library/` directory is the embedded asset source for
+the CLI package, not the runtime execution root of initialized user projects.
 
 ### `packages/storage`
 
@@ -88,6 +95,17 @@ Workers are stateless processes. A worker loop:
 5. repeats until `maxRuns` or external stop
 
 All durable state lives in SQLite and the run filesystem.
+
+## Project Discovery Model
+
+The CLI resolves the effective project root in this order:
+
+1. `ERGON_ROOT_DIR`, when explicitly set
+2. the nearest ancestor directory containing `.ergon/`
+3. the current working directory as an uninitialized location
+
+Stateful commands require an initialized `.ergon/` directory. `template list`
+may use the embedded package library before init.
 
 ## Claim and Fencing Model
 
@@ -192,7 +210,7 @@ Cancellation is allowed from:
 
 ## Current Architectural Limits
 
-These limits are deliberate in `v0.0.1`:
+These limits are deliberate in `v0.1.1`:
 
 - execution is sequential, not parallel DAG scheduling
 - `library/agents` is not loaded by the runtime

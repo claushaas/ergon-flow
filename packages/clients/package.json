@@ -1,14 +1,41 @@
 {
+	"bugs": {
+		"url": "https://github.com/claushaas/ergon-flow/issues"
+	},
 	"dependencies": {
 		"@ergon/shared": "workspace:*"
 	},
+	"description": "Provider adapters for Ergon Flow execution clients",
+	"engines": {
+		"node": ">=22"
+	},
+	"files": [
+		"dist"
+	],
+	"homepage": "https://github.com/claushaas/ergon-flow#readme",
+	"keywords": [
+		"ergon",
+		"workflow",
+		"agents",
+		"clients",
+		"providers"
+	],
+	"license": "MIT",
 	"main": "dist/index.js",
 	"name": "@ergon/clients",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"directory": "packages/clients",
+		"type": "git",
+		"url": "git+https://github.com/claushaas/ergon-flow.git"
+	},
 	"scripts": {
 		"build": "tsc --build",
 		"test": "vitest run --root ../.. packages/clients/tests"
 	},
 	"type": "module",
 	"types": "dist/index.d.ts",
-	"version": "0.1.0"
+	"version": "0.1.1"
 }

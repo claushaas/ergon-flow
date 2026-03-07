@@ -1,0 +1,73 @@
+name: Release publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag commit is reachable from main
+        run: |
+          git fetch origin main --depth=1
+          git branch -r --contains "$GITHUB_SHA" | grep -q "origin/main"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release version
+        run: pnpm release:version-check ${{ github.ref_name }}
+
+      - name: Run release gate
+        run: |
+          pnpm biome
+          pnpm typecheck
+          pnpm build
+          pnpm test
+          pnpm pack:validate
+          pnpm smoke:cli
+          pnpm smoke:global-install
+
+      - name: Publish @ergon/shared
+        run: pnpm --filter @ergon/shared publish --access public --no-git-checks
+
+      - name: Publish @ergon/clients
+        run: pnpm --filter @ergon/clients publish --access public --no-git-checks
+
+      - name: Publish @ergon/storage
+        run: pnpm --filter @ergon/storage publish --access public --no-git-checks
+
+      - name: Publish @ergon/engine
+        run: pnpm --filter @ergon/engine publish --access public --no-git-checks
+
+      - name: Publish @ergon/cli
+        run: pnpm --filter @ergon/cli publish --access public --no-git-checks

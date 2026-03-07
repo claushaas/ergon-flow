@@ -1,7 +1,6 @@
 # Ergon Flow
 
-Ergon Flow is a deterministic workflow runtime for orchestrating coding
-workflows.
+Ergon Flow is a deterministic workflow runtime for orchestrating agentic workflows.
 
 The repository currently ships:
 
@@ -10,7 +9,8 @@ The repository currently ships:
 - a SQLite-backed storage layer
 - built-in step executors
 - provider/client adapters
-- a built-in workflow library under `library/workflows`
+- an embedded workflow library that `ergon init` copies into
+  `./.ergon/library`
 
 The runtime is designed around auditability:
 
@@ -19,7 +19,7 @@ The runtime is designed around auditability:
 - every artifact is stored on disk and indexed in SQLite
 - every significant transition is appended to `events`
 
-## What v0.0.1 Includes
+## What v0.1.1 Includes
 
 The current release scope is pragmatic and explicit:
 
@@ -29,6 +29,9 @@ The current release scope is pragmatic and explicit:
 - manual approval and rejection
 - cancellation before and during step execution
 - per-attempt artifact storage
+- explicit project bootstrap with `ergon init`
+- project-local workflow assets under `./.ergon/library`
+- explicit library refresh through `ergon library sync`
 - built-in workflows validated in CI and covered by E2E tests
 
 Supported step kinds:
@@ -48,7 +51,7 @@ Supported providers:
 - `claude-code`
 - `openclaw`
 
-## What v0.0.1 Does Not Include
+## What v0.1.1 Does Not Include
 
 These repository assets exist, but they are not enforced by the runtime yet:
 
@@ -63,7 +66,39 @@ not a parallel DAG scheduler.
 
 ## Quickstart
 
-Install dependencies and run the full local gate:
+Supported public runtime:
+
+- Node.js `>=22`
+
+Install the CLI globally:
+
+```bash
+pnpm add -g @ergon/cli
+```
+
+Bootstrap a project-local Ergon workspace:
+
+```bash
+cd /path/to/your/repo
+ergon init
+ergon --help
+ergon --version
+```
+
+This creates:
+
+```text
+.ergon/
+  config.json
+  storage/
+  library/
+```
+
+The embedded `library/` bundled with the CLI is copied into
+`./.ergon/library/`. After initialization, the CLI resolves workflows from the
+nearest ancestor `.ergon/library/workflows`.
+
+For repository development, run the full local gate:
 
 ```bash
 pnpm install
@@ -79,11 +114,11 @@ Smoke the compiled CLI end to end:
 pnpm smoke:cli
 ```
 
-List bundled templates and workflows:
+List bundled templates and then register workflows inside an initialized project:
 
 ```bash
-node packages/cli/dist/main.js template list
-node packages/cli/dist/main.js workflow list
+ergon template list
+ergon workflow list
 ```
 
 ## Running a Real Worker
@@ -116,10 +151,22 @@ Relevant environment variables:
 - `OPENCLAW_COMMAND`
 - `OPENCLAW_ARGS`
 
+Provider prerequisites:
+
+- `openrouter`: requires `OPENROUTER_API_KEY`
+- `ollama`: requires a reachable Ollama instance
+- `codex`: requires a local `codex` command or explicit `CODEX_COMMAND`
+- `claude-code`: requires a local `claude-code` command or explicit
+  `CLAUDE_CODE_COMMAND`
+- `openclaw`: requires a local `openclaw` command or explicit
+  `OPENCLAW_COMMAND`
+
 ## CLI Surface
 
 Current commands:
 
+- `ergon init [--root <path>]`
+- `ergon library sync [--force] [--root <path>]`
 - `ergon template list`
 - `ergon workflow list`
 - `ergon run <workflow_id> [--inputs <json-or-path>]`
@@ -128,9 +175,20 @@ Current commands:
 - `ergon approve <run_id> <step_id> --decision approve|reject`
 - `ergon cancel <run_id>`
 
+Stateful commands (`workflow list`, `run`, `run-status`, `worker start`,
+`approve`, `cancel`) require an initialized project. `template list` can run
+before init by reading from the embedded package library without mutating the
+filesystem.
+
 ## Storage Layout
 
-Run state lives in SQLite.
+Project state lives under `./.ergon/`.
+
+The default SQLite location is:
+
+```text
+.ergon/storage/ergon.db
+```
 
 Artifacts live on disk under:
 
@@ -153,6 +211,27 @@ The repository treats these documents as source of truth:
 - `docs/ARCHITECTURE.md`
 - `docs/DB_SCHEMA.md`
 - `docs/TEMPLATE_SPEC.md`
+- `docs/RELEASE.md`
+
+## Release Flow
+
+Public releases are cut from `main` using Git tags such as `v0.1.1`.
+
+Before tagging a release:
+
+```bash
+pnpm biome
+pnpm typecheck
+pnpm build
+pnpm test
+pnpm pack:validate
+pnpm smoke:cli
+pnpm smoke:global-install
+```
+
+The publish workflow validates the tag version, verifies the tarballs, and then
+publishes `@ergon/shared`, `@ergon/clients`, `@ergon/storage`,
+`@ergon/engine`, and `@ergon/cli` in dependency order.
 
 ## Release Readiness
 

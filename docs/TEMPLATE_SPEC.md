@@ -5,7 +5,9 @@ Version: `0.2`
 This document describes the workflow template contract enforced by the current
 runtime.
 
-Templates live under `library/workflows` and are written in YAML.
+Templates are shipped in the CLI package as an embedded library and are copied
+into `./.ergon/library/workflows` by `ergon init`. Initialized projects always
+resolve templates from `./.ergon/library/workflows`.
 
 ## Top-Level Shape
 
@@ -283,7 +285,7 @@ The loader rejects templates that have:
 
 ## Current Limitations
 
-These are deliberate in `v0.0.1`:
+These are deliberate in `v0.1.1`:
 
 - no `steps.*` interpolation
 - no parallel DAG scheduling
