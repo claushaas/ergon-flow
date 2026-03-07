@@ -5,7 +5,11 @@ import type {
 	Provider,
 } from '@ergon/shared';
 import { describe, expect, it } from 'vitest';
-import { ClientRegistry, validateProviderConfig } from '../src/index.js';
+import {
+	ClientRegistry,
+	createClientRegistry,
+	validateProviderConfig,
+} from '../src/index.js';
 
 class StubClient implements ExecutionClient {
 	public readonly provider: Provider;
@@ -49,6 +53,19 @@ describe('ClientRegistry (D1)', () => {
 		const registry = new ClientRegistry();
 		expect(() => registry.get('codex')).toThrow(
 			'No client registered for provider "codex"',
+		);
+	});
+
+	it('accepts sparse provider config without validating missing providers', () => {
+		const registry = createClientRegistry({
+			ollama: { baseUrl: 'http://localhost:11434' },
+			openrouter: undefined,
+		});
+
+		expect(registry.has('ollama')).toBe(true);
+		expect(registry.get('ollama').provider).toBe('ollama');
+		expect(() => registry.get('openrouter')).toThrow(
+			'No client registered for provider "openrouter"',
 		);
 	});
 
