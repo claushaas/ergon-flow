@@ -73,6 +73,7 @@ describe('AgentExecutor (E2)', () => {
 			model: 'deepseek/deepseek-v3.2',
 			prompt: 'Task "refactor" / Existing "parser"',
 			provider: 'openrouter',
+			signal: context.signal,
 		});
 		expect(result).toEqual({
 			artifacts: [
@@ -90,6 +91,7 @@ describe('AgentExecutor (E2)', () => {
 					model: 'deepseek/deepseek-v3.2',
 					prompt: 'Task "refactor" / Existing "parser"',
 					provider: 'openrouter',
+					signal: context.signal,
 				},
 				response: { id: 'resp_1' },
 				text: '{"summary":"repo state","risks":["low"]}',

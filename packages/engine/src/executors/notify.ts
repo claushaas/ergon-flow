@@ -28,10 +28,11 @@ export interface NotifyOpenClawResult {
 export type HostnameResolver = typeof dnsLookup;
 export type NotifyLogger = (message: string) => void;
 export type NotifyWebhookSender = (
-	payload: NotifyWebhookPayload,
+	payload: NotifyWebhookPayload & { signal?: AbortSignal },
 ) => Promise<NotifyWebhookResult>;
 export type NotifyOpenClawSender = (payload: {
 	message: string;
+	signal?: AbortSignal;
 	target: string;
 }) => Promise<NotifyOpenClawResult>;
 
@@ -169,7 +170,7 @@ async function validateWebhookTarget(
 }
 
 export async function defaultSendWebhook(
-	payload: NotifyWebhookPayload,
+	payload: NotifyWebhookPayload & { signal?: AbortSignal },
 ): Promise<NotifyWebhookResult> {
 	const response = await fetch(payload.target, {
 		body: JSON.stringify({
@@ -184,6 +185,7 @@ export async function defaultSendWebhook(
 		},
 		method: 'POST',
 		redirect: 'error',
+		signal: payload.signal,
 	});
 	if (!response.ok) {
 		throw new Error(
@@ -201,6 +203,7 @@ async function defaultSpawn(options: {
 	command: string;
 	env?: Record<string, string>;
 	input: string;
+	signal?: AbortSignal;
 	spawn?: CliSpawn;
 }): Promise<{ code: number | null; stderr: string; stdout: string }> {
 	if (options.spawn) {
@@ -209,6 +212,7 @@ async function defaultSpawn(options: {
 			command: options.command,
 			env: options.env,
 			input: options.input,
+			signal: options.signal,
 		});
 		return {
 			code: result.code,
@@ -225,6 +229,47 @@ async function defaultSpawn(options: {
 		});
 		let stdout = '';
 		let stderr = '';
+		let settled = false;
+		let forceKillTimer: NodeJS.Timeout | undefined;
+
+		const cleanupAbort = () => {
+			if (options.signal) {
+				options.signal.removeEventListener('abort', abortHandler);
+			}
+			if (forceKillTimer) {
+				clearTimeout(forceKillTimer);
+				forceKillTimer = undefined;
+			}
+		};
+
+		const fail = (error: Error) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			cleanupAbort();
+			reject(error);
+		};
+
+		const abortHandler = () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			child.kill('SIGTERM');
+			forceKillTimer = setTimeout(() => {
+				if (!child.killed) {
+					child.kill('SIGKILL');
+				}
+			}, 250);
+			reject(
+				options.signal?.reason instanceof Error
+					? options.signal.reason
+					: Object.assign(new Error('Notify command aborted'), {
+							name: 'AbortError',
+						}),
+			);
+		};
 
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
@@ -232,14 +277,27 @@ async function defaultSpawn(options: {
 		child.stderr.on('data', (chunk) => {
 			stderr += chunk.toString();
 		});
-		child.on('error', reject);
+		child.on('error', fail);
 		child.on('close', (code) => {
+			if (settled) {
+				cleanupAbort();
+				return;
+			}
+			settled = true;
+			cleanupAbort();
 			resolve({
 				code,
 				stderr,
 				stdout,
 			});
 		});
+		if (options.signal) {
+			if (options.signal.aborted) {
+				abortHandler();
+				return;
+			}
+			options.signal.addEventListener('abort', abortHandler, { once: true });
+		}
 
 		child.stdin.write(options.input);
 		child.stdin.end();
@@ -254,12 +312,13 @@ function createOpenClawSender(
 	const env = options.env;
 	const spawn = options.spawn;
 
-	return async ({ message, target }) => {
+	return async ({ message, signal, target }) => {
 		const result = await defaultSpawn({
 			args: [...args, target],
 			command,
 			env,
 			input: message,
+			signal,
 			spawn,
 		});
 		if (result.code !== 0) {
@@ -342,6 +401,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 					channel,
 					message: payload.message,
 					runId: context.run.runId,
+					signal: context.signal,
 					stepId: step.id,
 					target: validatedTarget.toString(),
 					workflowId: context.run.workflowId,
@@ -379,6 +439,7 @@ export class NotifyExecutor implements Executor<NotifyStepDefinition> {
 				}
 				await this.sendOpenClawMessage({
 					message: payload.message,
+					signal: context.signal,
 					target,
 				});
 				const summary = buildRunSummaryArtifact(

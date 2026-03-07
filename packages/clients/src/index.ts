@@ -54,6 +54,7 @@ export type CliSpawn = (options: {
 	command: string;
 	env?: Record<string, string>;
 	input: string;
+	signal?: AbortSignal;
 }) => Promise<CliSpawnResult>;
 
 export interface CliClientOptions extends CliAgentProviderConfig {
@@ -306,6 +307,7 @@ async function defaultSpawn(options: {
 	command: string;
 	env?: Record<string, string>;
 	input: string;
+	signal?: AbortSignal;
 }): Promise<CliSpawnResult> {
 	return await new Promise<CliSpawnResult>((resolve, reject) => {
 		const child = nodeSpawn(options.command, options.args, {
@@ -314,6 +316,38 @@ async function defaultSpawn(options: {
 		});
 		let stdout = '';
 		let stderr = '';
+		let settled = false;
+		let forceKillTimer: NodeJS.Timeout | undefined;
+
+		const cleanupAbort = () => {
+			if (options.signal) {
+				options.signal.removeEventListener('abort', abortHandler);
+			}
+			if (forceKillTimer) {
+				clearTimeout(forceKillTimer);
+				forceKillTimer = undefined;
+			}
+		};
+
+		const abortHandler = () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			child.kill('SIGTERM');
+			forceKillTimer = setTimeout(() => {
+				if (!child.killed) {
+					child.kill('SIGKILL');
+				}
+			}, 250);
+			reject(
+				options.signal?.reason instanceof Error
+					? options.signal.reason
+					: Object.assign(new Error('Client command aborted'), {
+							name: 'AbortError',
+						}),
+			);
+		};
 
 		child.stdout.on('data', (chunk) => {
 			stdout += chunk.toString();
@@ -321,8 +355,22 @@ async function defaultSpawn(options: {
 		child.stderr.on('data', (chunk) => {
 			stderr += chunk.toString();
 		});
-		child.on('error', reject);
+		child.on('error', (error) => {
+			if (settled) {
+				cleanupAbort();
+				return;
+			}
+			settled = true;
+			cleanupAbort();
+			reject(error);
+		});
 		child.on('close', (code, signal) => {
+			if (settled) {
+				cleanupAbort();
+				return;
+			}
+			settled = true;
+			cleanupAbort();
 			resolve({
 				code,
 				signal,
@@ -330,6 +378,13 @@ async function defaultSpawn(options: {
 				stdout,
 			});
 		});
+		if (options.signal) {
+			if (options.signal.aborted) {
+				abortHandler();
+				return;
+			}
+			options.signal.addEventListener('abort', abortHandler, { once: true });
+		}
 
 		child.stdin.write(options.input);
 		child.stdin.end();
@@ -401,6 +456,7 @@ export class OpenRouterModelClient implements ExecutionClient {
 				...(this.appName ? { 'X-Title': this.appName } : {}),
 			},
 			method: 'POST',
+			signal: request.signal,
 		});
 
 		if (!response.ok) {
@@ -446,6 +502,7 @@ export class OllamaModelClient implements ExecutionClient {
 				'Content-Type': 'application/json',
 			},
 			method: 'POST',
+			signal: request.signal,
 		});
 
 		if (!response.ok) {
@@ -493,6 +550,7 @@ abstract class CliAgentClientBase implements ExecutionClient {
 			command: this.command,
 			env: this.env,
 			input: resolveCliInput(request, this.displayName),
+			signal: request.signal,
 		});
 		if (result.code !== 0) {
 			const detail = result.stderr.trim() || result.stdout.trim();

@@ -15,7 +15,6 @@ import type {
 } from '@ergon/shared';
 import {
 	appendEvent,
-	artifactPath,
 	claimNextRun,
 	createRun,
 	createStepRun,
@@ -26,6 +25,7 @@ import {
 	openStorageDb,
 	registerWorkflow,
 	requeueRunFromManual,
+	stepAttemptDir,
 	updateRunCursor,
 	updateStepRunStatus,
 } from '@ergon/storage';
@@ -181,6 +181,80 @@ class CancelingExecExecutor implements Executor<ExecStepDefinition> {
 	}
 }
 
+class LongRunningExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+
+	public constructor(private readonly onStart?: () => void) {}
+
+	public async execute(
+		_step: ExecStepDefinition,
+		context: ExecutionContext,
+	): Promise<ExecutorResult> {
+		this.onStart?.();
+		await new Promise<never>((_resolve, reject) => {
+			if (context.signal.aborted) {
+				reject(context.signal.reason);
+				return;
+			}
+			context.signal.addEventListener(
+				'abort',
+				() => {
+					reject(context.signal.reason);
+				},
+				{ once: true },
+			);
+		});
+		return {
+			status: 'succeeded',
+		};
+	}
+}
+
+class FlakyArtifactExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+	private attempts = 0;
+
+	public async execute(): Promise<ExecutorResult> {
+		this.attempts += 1;
+		if (this.attempts === 1) {
+			throw new Error('transient boom');
+		}
+		return {
+			artifacts: [
+				{
+					name: 'flaky.report',
+					type: 'json',
+					value: { attempts: this.attempts },
+				},
+			],
+			outputs: {
+				attempts: this.attempts,
+			},
+			status: 'succeeded',
+		};
+	}
+}
+
+class SensitiveFailedExecExecutor implements Executor<ExecStepDefinition> {
+	public readonly kind = 'exec' as const;
+
+	public async execute(): Promise<ExecutorResult> {
+		return {
+			outputs: {
+				nested: {
+					authorization: 'Bearer secret',
+					keep: 'visible',
+				},
+				prompt: 'do not persist',
+				safe: 'ok',
+				target: 'https://example.test/hooks/notify',
+				token: 'secret-token',
+			},
+			status: 'failed',
+		};
+	}
+}
+
 afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { force: true, recursive: true });
@@ -296,7 +370,28 @@ steps:
 		});
 
 		const storedAnalysis = path.join(rootDir, artifacts[0]?.path ?? '');
-		expect(storedAnalysis).toContain('.runs');
+		expect(storedAnalysis).toBe(
+			path.join(
+				rootDir,
+				'.runs',
+				queuedRun.id,
+				'steps',
+				'analyze',
+				'1',
+				'analysis.json',
+			),
+		);
+		expect(storedSummary).toBe(
+			path.join(
+				rootDir,
+				'.runs',
+				queuedRun.id,
+				'steps',
+				'notify',
+				'1',
+				'run.summary.json',
+			),
+		);
 
 		const eventRows = db
 			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
@@ -388,7 +483,10 @@ steps:
 			{ actor: 'worker:worker-2', stepRunId: priorStepRun.id },
 		);
 
-		const analysisFile = artifactPath(rootDir, queuedRun.id, 'analysis.json');
+		const analysisFile = path.join(
+			stepAttemptDir(rootDir, queuedRun.id, 'analyze', 1),
+			'analysis.json',
+		);
 		mkdirSync(path.dirname(analysisFile), { recursive: true });
 		writeFileSync(
 			analysisFile,
@@ -401,6 +499,37 @@ steps:
 			runId: queuedRun.id,
 			sizeBytes: 22,
 			stepRunId: priorStepRun.id,
+			type: 'analysis',
+		});
+
+		const failedStepRun = createStepRun(
+			db,
+			queuedRun.id,
+			'ignored.exec',
+			1,
+			'exec',
+		);
+		updateStepRunStatus(db, failedStepRun.id, 'failed', {
+			errorMessage: 'ignore failed artifact',
+			finishedAt: new Date().toISOString(),
+			startedAt: new Date().toISOString(),
+		});
+		const ignoredArtifactFile = path.join(
+			stepAttemptDir(rootDir, queuedRun.id, 'ignored.exec', 1),
+			'analysis.json',
+		);
+		mkdirSync(path.dirname(ignoredArtifactFile), { recursive: true });
+		writeFileSync(
+			ignoredArtifactFile,
+			JSON.stringify({ answer: 'failed-value' }, null, 2),
+			'utf8',
+		);
+		insertArtifact(db, {
+			name: 'analysis',
+			path: path.relative(rootDir, ignoredArtifactFile),
+			runId: queuedRun.id,
+			sizeBytes: 28,
+			stepRunId: failedStepRun.id,
 			type: 'analysis',
 		});
 
@@ -427,6 +556,7 @@ steps:
 			stepRuns.map((stepRun) => [stepRun.step_id, stepRun.attempt]),
 		).toEqual([
 			['analyze', 1],
+			['ignored.exec', 1],
 			['extract.answer', 1],
 		]);
 
@@ -982,6 +1112,71 @@ steps:
 		db.close();
 	});
 
+	it('stores successful retry artifacts under the winning attempt directory', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.retry.artifacts
+  version: 1
+steps:
+  - id: flaky
+    kind: exec
+    command: "echo retry"
+    retry:
+      max_attempts: 2
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.retry.artifacts',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.retry.artifacts',
+			{},
+			{
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		const claimedRun = claimNextRun(db, 'worker-8b', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
+
+		const finishedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-8b',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([new FlakyArtifactExecExecutor()]),
+				rootDir,
+			},
+		);
+
+		expect(finishedRun?.status).toBe('succeeded');
+		const artifacts = listArtifacts(db, queuedRun.id);
+		expect(artifacts).toHaveLength(1);
+		expect(artifacts[0]?.path).toBe(
+			['.runs', queuedRun.id, 'steps', 'flaky', '2', 'flaky.report.json'].join(
+				'/',
+			),
+		);
+
+		db.close();
+	});
+
 	it('does not retry when the failure category is not allowed', async () => {
 		const rootDir = createTempRoot();
 		const db = openStorageDb({
@@ -1287,6 +1482,222 @@ steps:
 			'workflow_canceled',
 			'step_failed',
 		]);
+
+		db.close();
+	});
+
+	it('cancels a long-running step while it is still executing', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.cancel.during-step
+  version: 1
+steps:
+  - id: long.exec
+    kind: exec
+    command: "sleep 10"
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.cancel.during-step',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.cancel.during-step',
+			{},
+			{
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		const claimedRun = claimNextRun(db, 'worker-12b', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
+
+		const canceledRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-12b',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([
+					new LongRunningExecExecutor(() => {
+						setTimeout(() => {
+							markRunCanceled(
+								db,
+								queuedRun.id,
+								'worker-12b',
+								claimedRun?.claim_epoch ?? 1,
+							);
+						}, 10);
+					}),
+				]),
+				rootDir,
+			},
+		);
+
+		expect(canceledRun?.status).toBe('canceled');
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(1);
+		expect(stepRuns[0]?.status).toBe('failed');
+		expect(stepRuns[0]?.error_message).toContain('canceled during step');
+
+		const eventRows = db
+			.prepare('SELECT type FROM events WHERE run_id = ? ORDER BY seq ASC;')
+			.all(queuedRun.id) as Array<{ type: string }>;
+		expect(eventRows.map((event) => event.type)).toEqual([
+			'workflow_scheduled',
+			'step_scheduled',
+			'step_started',
+			'workflow_canceled',
+			'step_failed',
+		]);
+
+		db.close();
+	});
+
+	it('fails a long-running step when timeout_ms expires', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.step.timeout
+  version: 1
+steps:
+  - id: long.exec
+    kind: exec
+    command: "sleep 10"
+    timeout_ms: 10
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.step.timeout',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.step.timeout',
+			{},
+			{
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		const claimedRun = claimNextRun(db, 'worker-12c', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-12c',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([new LongRunningExecExecutor()]),
+					rootDir,
+				},
+			),
+		).rejects.toThrow('exceeded timeout of 10ms');
+
+		const failedRun = db
+			.prepare('SELECT status, error_message FROM workflow_runs WHERE id = ?;')
+			.get(queuedRun.id) as { error_message: string; status: string };
+		expect(failedRun.status).toBe('failed');
+		expect(failedRun.error_message).toContain('exceeded timeout of 10ms');
+
+		db.close();
+	});
+
+	it('redacts sensitive request and output payloads before persisting them', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.redaction
+  version: 1
+inputs:
+  secret: string
+steps:
+  - id: sensitive
+    kind: exec
+    command: "echo ok"
+    env:
+      AUTHORIZATION: "Bearer {{ inputs.secret }}"
+      KEEP: "visible"
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.redaction',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.redaction',
+			{
+				secret: 'top-secret',
+			},
+			{
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		const claimedRun = claimNextRun(db, 'worker-12d', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
+
+		await expect(
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-12d',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([new SensitiveFailedExecExecutor()]),
+					rootDir,
+				},
+			),
+		).rejects.toThrow('returned status failed');
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(1);
+		expect(stepRuns[0]?.request_json).toContain('"env":"[REDACTED]"');
+		expect(stepRuns[0]?.output_json).toContain('"token":"[REDACTED]"');
+		expect(stepRuns[0]?.output_json).toContain('"prompt":"[REDACTED]"');
+		expect(stepRuns[0]?.output_json).toContain('"authorization":"[REDACTED]"');
+		expect(stepRuns[0]?.output_json).toContain('"safe":"ok"');
 
 		db.close();
 	});

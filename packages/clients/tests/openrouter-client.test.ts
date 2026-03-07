@@ -29,9 +29,11 @@ describe('OpenRouterModelClient (D2)', () => {
 			siteUrl: 'https://ergon.flow',
 		});
 
+		const controller = new AbortController();
 		const result = await client.run({
 			prompt: 'Review this patch',
 			provider: 'openrouter',
+			signal: controller.signal,
 		});
 
 		expect(result.text).toBe('Refactor completed');
@@ -54,6 +56,7 @@ describe('OpenRouterModelClient (D2)', () => {
 				model: 'deepseek/deepseek-v3.2',
 			}),
 		);
+		expect(init?.signal).toBe(controller.signal);
 	});
 
 	it('supports json mode and explicit chat messages', async () => {

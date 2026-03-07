@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
@@ -12,7 +18,6 @@ import { ERROR_CODES } from '@ergon/shared';
 import {
 	appendEvent,
 	appendEventInTransaction,
-	artifactPath,
 	artifactsDir,
 	assertSafeSegment,
 	createStepRun,
@@ -29,6 +34,7 @@ import {
 	markRunWaitingManual,
 	type RunClaim,
 	type StepRunRow,
+	stepAttemptDir,
 	updateRunCursor,
 	updateStepRunStatus,
 	withRunClaim,
@@ -105,7 +111,41 @@ interface ExecuteStepResult {
 	shouldContinue: boolean;
 }
 
+interface PersistedArtifact {
+	filePath: string;
+	name: string;
+	record: {
+		meta: unknown;
+		mime: string | null;
+		path: string;
+		runId: string;
+		sha256: string;
+		sizeBytes: number;
+		stepRunId: string;
+		type: string;
+	};
+	value: unknown;
+}
+
+type StepAbortReason =
+	| {
+			message: string;
+			type: 'canceled';
+	  }
+	| {
+			message: string;
+			type: 'claim_lost';
+	  }
+	| {
+			message: string;
+			type: 'timeout';
+	  };
+
 const MAX_SAFE_JSON_BYTES = 128 * 1024;
+const EXECUTION_ABORT_POLL_MS = 50;
+const REDACTED_VALUE = '[REDACTED]';
+const REDACTED_KEY_PATTERN =
+	/(api[_-]?key|authorization|token|secret|password|prompt|target|env|messages?)/i;
 
 function parseJson<T>(value: string | null, fallback: T): T {
 	if (!value) {
@@ -159,6 +199,116 @@ function normalizeForStorage(value: unknown): unknown {
 	return JSON.parse(serialized);
 }
 
+function redactForPersistence(
+	value: unknown,
+	key?: string,
+	seen: WeakSet<object> = new WeakSet(),
+): unknown {
+	if (value === undefined || value === null) {
+		return value;
+	}
+	if (key && REDACTED_KEY_PATTERN.test(key)) {
+		return REDACTED_VALUE;
+	}
+	if (Array.isArray(value)) {
+		return value.map((entry) => redactForPersistence(entry, undefined, seen));
+	}
+	if (typeof value === 'object') {
+		if (seen.has(value as object)) {
+			return '[Circular]';
+		}
+		seen.add(value as object);
+		const redacted: Record<string, unknown> = {};
+		for (const [entryKey, entryValue] of Object.entries(
+			value as Record<string, unknown>,
+		)) {
+			redacted[entryKey] = redactForPersistence(entryValue, entryKey, seen);
+		}
+		return redacted;
+	}
+	return value;
+}
+
+function persistableValue(value: unknown): unknown {
+	return normalizeForStorage(redactForPersistence(value));
+}
+
+function createAbortError(message: string): Error {
+	return Object.assign(new Error(message), { name: 'AbortError' });
+}
+
+function createStepAbortMonitor(
+	db: DatabaseSync,
+	runId: string,
+	claim: RunClaim,
+	step: StepDefinition,
+): {
+	abortReason: () => StepAbortReason | null;
+	cleanup: () => void;
+	signal: AbortSignal;
+} {
+	const controller = new AbortController();
+	let abortReason: StepAbortReason | null = null;
+	let timeoutId: NodeJS.Timeout | undefined;
+	const intervalId = setInterval(() => {
+		if (controller.signal.aborted) {
+			return;
+		}
+		const currentRun = getRun(db, runId);
+		if (!currentRun) {
+			abortReason = {
+				message: `Workflow run "${runId}" disappeared while step "${step.id}" was running`,
+				type: 'claim_lost',
+			};
+			controller.abort(createAbortError(abortReason.message));
+			return;
+		}
+		if (currentRun.status === 'canceled') {
+			abortReason = {
+				message: `Workflow run "${runId}" was canceled during step "${step.id}"`,
+				type: 'canceled',
+			};
+			controller.abort(createAbortError(abortReason.message));
+			return;
+		}
+		if (
+			currentRun.status !== 'running' ||
+			currentRun.claimed_by !== claim.workerId ||
+			currentRun.claim_epoch !== claim.claimEpoch
+		) {
+			abortReason = {
+				message: `Workflow run "${runId}" lost claim ownership during step "${step.id}"`,
+				type: 'claim_lost',
+			};
+			controller.abort(createAbortError(abortReason.message));
+		}
+	}, EXECUTION_ABORT_POLL_MS);
+
+	if (typeof step.timeout_ms === 'number') {
+		timeoutId = setTimeout(() => {
+			if (controller.signal.aborted) {
+				return;
+			}
+			abortReason = {
+				message: `Step "${step.id}" exceeded timeout of ${step.timeout_ms}ms`,
+				type: 'timeout',
+			};
+			controller.abort(createAbortError(abortReason.message));
+		}, step.timeout_ms);
+	}
+
+	return {
+		abortReason: () => abortReason,
+		cleanup: () => {
+			clearInterval(intervalId);
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+		},
+		signal: controller.signal,
+	};
+}
+
 function isErrorCode(value: unknown): value is ErrorCode {
 	return typeof value === 'string' && ERROR_CODE_SET.has(value);
 }
@@ -178,6 +328,7 @@ function prepareStepExecution(
 	template: WorkflowTemplate,
 	inputs: Record<string, unknown>,
 	artifacts: Record<string, unknown>,
+	signal: AbortSignal,
 	stepRuns: ReturnType<typeof listStepRuns>,
 ): PreparedStepExecution {
 	const stepAttempt = getStepAttempt(step.id, stepRuns);
@@ -192,6 +343,7 @@ function prepareStepExecution(
 			workflowId: template.workflow.id,
 			workflowVersion: template.workflow.version,
 		},
+		signal,
 	});
 	const request = buildRequestSnapshot(step, context);
 
@@ -227,9 +379,10 @@ function startStepAttempt(
 ): StepRunRow | null {
 	return withRunClaim(db, runId, claim, () => {
 		const now = new Date().toISOString();
+		const persistableRequest = persistableValue(request);
 		const stepRun = createStepRun(db, runId, step.id, stepAttempt, step.kind, {
 			dependsOn: step.depends_on ?? [],
-			request,
+			request: persistableRequest,
 		});
 		appendEventInTransaction(
 			db,
@@ -255,7 +408,7 @@ function startStepAttempt(
 			step.id,
 		);
 		updateStepRunStatus(db, stepRun.id, 'running', {
-			request,
+			request: persistableRequest,
 			startedAt: now,
 		});
 		appendEventInTransaction(
@@ -336,11 +489,20 @@ function resolvePathWithinBase(
 
 function restoreArtifacts(
 	artifactBaseDir: string,
+	stepRuns: ReturnType<typeof listStepRuns>,
 	runArtifacts: ReturnType<typeof listArtifacts>,
 ): Record<string, unknown> {
 	const restored: Record<string, unknown> = {};
+	const succeededStepRunIds = new Set(
+		stepRuns
+			.filter((stepRun) => stepRun.status === 'succeeded')
+			.map((stepRun) => stepRun.id),
+	);
 
 	for (const artifact of runArtifacts) {
+		if (!succeededStepRunIds.has(artifact.step_run_id)) {
+			continue;
+		}
 		const artifactFile = getArtifactFilePath(artifactBaseDir, artifact);
 		if (!existsSync(artifactFile)) {
 			continue;
@@ -388,7 +550,11 @@ function resolveRunState(
 	const stepRuns = listStepRuns(db, run.id);
 	const completedSteps = buildCompletedSteps(stepRuns);
 	return {
-		artifacts: restoreArtifacts(artifactBaseDir, listArtifacts(db, run.id)),
+		artifacts: restoreArtifacts(
+			artifactBaseDir,
+			stepRuns,
+			listArtifacts(db, run.id),
+		),
 		completedSteps,
 		nextStepIndex: resolveNextStepIndex(
 			template,
@@ -540,19 +706,20 @@ function toStoragePath(rootDir: string, filePath: string): string {
 	return path.relative(rootDir, filePath).split(path.sep).join('/');
 }
 
-function persistArtifacts(
-	db: DatabaseSync,
+function stageArtifacts(
 	rootDir: string,
 	runId: string,
+	step: StepDefinition,
+	stepAttempt: number,
 	stepRunId: string,
 	artifacts: ExecutorArtifact[],
-): Record<string, unknown> {
-	const stored: Record<string, unknown> = {};
+): PersistedArtifact[] {
+	const _stored: Record<string, unknown> = {};
+	const persisted: PersistedArtifact[] = [];
 
 	for (const artifact of artifacts) {
-		const artifactFile = artifactPath(
-			rootDir,
-			runId,
+		const artifactFile = path.join(
+			stepAttemptDir(rootDir, runId, step.id, stepAttempt),
 			getArtifactFileName(artifact),
 		);
 		mkdirSync(path.dirname(artifactFile), { recursive: true });
@@ -560,19 +727,54 @@ function persistArtifacts(
 		writeFileSync(artifactFile, content, 'utf8');
 		const buffer = Buffer.from(content, 'utf8');
 
-		insertArtifact(db, {
-			meta: null,
+		persisted.push({
+			filePath: artifactFile,
 			name: artifact.name,
-			path: toStoragePath(rootDir, artifactFile),
-			runId,
-			sha256: createHash('sha256').update(buffer).digest('hex'),
-			sizeBytes: buffer.byteLength,
-			stepRunId,
-			type: artifact.type,
+			record: {
+				meta: {
+					attempt: stepAttempt,
+					step_id: step.id,
+				},
+				mime: null,
+				path: toStoragePath(rootDir, artifactFile),
+				runId,
+				sha256: createHash('sha256').update(buffer).digest('hex'),
+				sizeBytes: buffer.byteLength,
+				stepRunId,
+				type: artifact.type,
+			},
+			value: artifact.value,
+		});
+	}
+
+	return persisted;
+}
+
+function cleanupStagedArtifacts(artifacts: PersistedArtifact[]): void {
+	for (const artifact of artifacts) {
+		rmSync(artifact.filePath, { force: true });
+	}
+}
+
+function finalizeArtifacts(
+	db: DatabaseSync,
+	artifacts: PersistedArtifact[],
+): Record<string, unknown> {
+	const stored: Record<string, unknown> = {};
+	for (const artifact of artifacts) {
+		insertArtifact(db, {
+			meta: artifact.record.meta,
+			mime: artifact.record.mime,
+			name: artifact.name,
+			path: artifact.record.path,
+			runId: artifact.record.runId,
+			sha256: artifact.record.sha256,
+			sizeBytes: artifact.record.sizeBytes,
+			stepRunId: artifact.record.stepRunId,
+			type: artifact.record.type,
 		});
 		stored[artifact.name] = artifact.value;
 	}
-
 	return stored;
 }
 
@@ -601,7 +803,7 @@ function handleSkippedStep(
 	const skipped = withRunClaim(db, options.runId, claim, () => {
 		updateStepRunStatus(db, options.stepRun.id, 'skipped', {
 			finishedAt: new Date().toISOString(),
-			output: options.output,
+			output: persistableValue(options.output),
 		});
 		appendEventInTransaction(
 			db,
@@ -631,7 +833,7 @@ function handleSkippedStep(
 	}
 	options.stepRuns.push({
 		...options.stepRun,
-		output_json: safeJsonStringify(options.output),
+		output_json: safeJsonStringify(persistableValue(options.output)),
 		status: 'skipped',
 	});
 	return true;
@@ -754,10 +956,10 @@ function markStepRetry(
 		withRunClaim(db, runId, claim, () => {
 			updateStepRunStatus(db, stepRunId, 'failed', {
 				errorCode: failure.code,
-				errorDetail: normalizeForStorage(failure.detail),
+				errorDetail: persistableValue(failure.detail),
 				errorMessage: failure.message,
 				finishedAt: new Date().toISOString(),
-				output: normalizeForStorage(output),
+				output: persistableValue(output),
 			});
 			appendEventInTransaction(
 				db,
@@ -821,9 +1023,9 @@ function recordRetryableFailure(
 	stepRuns.push({
 		...stepRun,
 		error_code: failure.code,
-		error_detail_json: safeJsonStringify(failure.detail),
+		error_detail_json: safeJsonStringify(persistableValue(failure.detail)),
 		error_message: failure.message,
-		output_json: safeJsonStringify(output),
+		output_json: safeJsonStringify(persistableValue(output)),
 		status: 'failed',
 	});
 }
@@ -841,10 +1043,10 @@ function markStepFailed(
 	const failed = withRunClaim(db, runId, claim, () => {
 		updateStepRunStatus(db, stepRunId, 'failed', {
 			errorCode: failure.code,
-			errorDetail: normalizeForStorage(failure.detail),
+			errorDetail: persistableValue(failure.detail),
 			errorMessage: failure.message,
 			finishedAt: new Date().toISOString(),
-			output: normalizeForStorage(output),
+			output: persistableValue(output),
 		});
 		appendEventInTransaction(
 			db,
@@ -875,7 +1077,7 @@ function markStepFailed(
 		);
 		markRunFailed(db, runId, claim.workerId, claim.claimEpoch, {
 			errorCode: failure.code,
-			errorDetail: normalizeForStorage(failure.detail),
+			errorDetail: persistableValue(failure.detail),
 			errorMessage: failure.message,
 		});
 		return true;
@@ -943,7 +1145,7 @@ function markCanceledStep(
 	);
 	updateStepRunStatus(db, stepRunId, 'failed', {
 		errorCode: failure.code,
-		errorDetail: normalizeForStorage({
+		errorDetail: persistableValue({
 			...failure.detail,
 			reason: 'canceled_during_step',
 		}),
@@ -1026,7 +1228,7 @@ function resumeApprovedManualStep(
 		() => {
 			updateStepRunStatus(options.db, waitingStepRun.id, 'succeeded', {
 				finishedAt: approvalEvent.ts,
-				output: approvalOutput,
+				output: persistableValue(approvalOutput),
 			});
 			appendEventInTransaction(
 				options.db,
@@ -1063,7 +1265,7 @@ function resumeApprovedManualStep(
 	});
 	replaceStepRunSnapshot(options.stepRuns, waitingStepRun.id, {
 		finished_at: approvalEvent.ts,
-		output_json: safeJsonStringify(approvalOutput),
+		output_json: safeJsonStringify(persistableValue(approvalOutput)),
 		status: 'succeeded',
 	});
 
@@ -1115,6 +1317,7 @@ async function executeStep(
 			options.template,
 			options.inputs,
 			options.state.artifacts,
+			new AbortController().signal,
 			options.stepRuns,
 		);
 		const stepRun = startStepAttempt(
@@ -1164,6 +1367,12 @@ async function executeStep(
 	}
 
 	while (true) {
+		const abortMonitor = createStepAbortMonitor(
+			options.db,
+			options.runId,
+			options.claim,
+			options.step,
+		);
 		const { context, request, stepAttempt } = prepareStepExecution(
 			options.runId,
 			options.claim.workerId,
@@ -1172,6 +1381,7 @@ async function executeStep(
 			options.template,
 			options.inputs,
 			options.state.artifacts,
+			abortMonitor.signal,
 			options.stepRuns,
 		);
 		const stepRun = startStepAttempt(
@@ -1196,6 +1406,30 @@ async function executeStep(
 				context,
 			);
 		} catch (error) {
+			abortMonitor.cleanup();
+			const stepAbortReason = abortMonitor.abortReason();
+			if (stepAbortReason?.type === 'canceled') {
+				abortIfCanceled(
+					options.db,
+					options.runId,
+					options.claim.workerId,
+					'canceled_during_step',
+				);
+				markCanceledStep(
+					options.db,
+					options.runId,
+					options.claim.workerId,
+					options.step,
+					stepRun.id,
+				);
+				return {
+					canceledRun: getRun(options.db, options.runId),
+					shouldContinue: false,
+				};
+			}
+			if (stepAbortReason?.type === 'claim_lost') {
+				throw new Error(stepAbortReason.message);
+			}
 			const failure = buildFailureMetadata(options.step, error);
 			if (canRetryStep(options.step, stepAttempt, failure.code)) {
 				recordRetryableFailure(
@@ -1219,6 +1453,30 @@ async function executeStep(
 				error,
 			);
 		}
+		abortMonitor.cleanup();
+		const stepAbortReason = abortMonitor.abortReason();
+		if (stepAbortReason?.type === 'canceled') {
+			abortIfCanceled(
+				options.db,
+				options.runId,
+				options.claim.workerId,
+				'canceled_during_step',
+			);
+			markCanceledStep(
+				options.db,
+				options.runId,
+				options.claim.workerId,
+				options.step,
+				stepRun.id,
+			);
+			return {
+				canceledRun: getRun(options.db, options.runId),
+				shouldContinue: false,
+			};
+		}
+		if (stepAbortReason?.type === 'claim_lost') {
+			throw new Error(stepAbortReason.message);
+		}
 
 		if (result.status === 'failed') {
 			const failure = buildFailureMetadata(
@@ -1235,7 +1493,9 @@ async function executeStep(
 					options.stepRuns,
 					stepAttempt + 1,
 					failure,
-					result.outputs,
+					persistableValue(result.outputs) as
+						| Record<string, unknown>
+						| undefined,
 				);
 				continue;
 			}
@@ -1246,7 +1506,7 @@ async function executeStep(
 				options.step,
 				stepRun.id,
 				new Error(`Step "${options.step.id}" returned status failed`),
-				result.outputs,
+				persistableValue(result.outputs) as Record<string, unknown> | undefined,
 			);
 		}
 
@@ -1284,7 +1544,7 @@ async function executeStep(
 					);
 					updateStepRunStatus(options.db, stepRun.id, 'waiting_manual', {
 						finishedAt: new Date().toISOString(),
-						output: normalizeForStorage(result.outputs),
+						output: persistableValue(result.outputs),
 					});
 					markRunWaitingManual(
 						options.db,
@@ -1392,18 +1652,21 @@ async function executeStep(
 			);
 		}
 
-		const storedArtifacts = persistArtifacts(
-			options.db,
+		const stagedArtifacts = stageArtifacts(
 			options.artifactBaseDir,
 			options.runId,
+			options.step,
+			stepAttempt,
 			stepRun.id,
 			result.artifacts ?? [],
 		);
+		let storedArtifacts: Record<string, unknown> = {};
 		const completed = withRunClaim(
 			options.db,
 			options.runId,
 			options.claim,
 			() => {
+				storedArtifacts = finalizeArtifacts(options.db, stagedArtifacts);
 				appendStepEventsInTransaction(
 					options.db,
 					options.runId,
@@ -1413,7 +1676,7 @@ async function executeStep(
 				);
 				updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
 					finishedAt: new Date().toISOString(),
-					output: normalizeForStorage(result.outputs),
+					output: persistableValue(result.outputs),
 				});
 				appendEventInTransaction(
 					options.db,
@@ -1440,6 +1703,7 @@ async function executeStep(
 			},
 		);
 		if (!completed) {
+			cleanupStagedArtifacts(stagedArtifacts);
 			const canceledAfterLoss = abortIfCanceled(
 				options.db,
 				options.runId,
@@ -1482,7 +1746,7 @@ async function executeStep(
 		}
 		options.stepRuns.push({
 			...stepRun,
-			output_json: safeJsonStringify(result.outputs),
+			output_json: safeJsonStringify(persistableValue(result.outputs)),
 			status: 'succeeded',
 		});
 		return {

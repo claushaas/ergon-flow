@@ -19,6 +19,7 @@ export type ExecSpawn = (options: {
 	command: string;
 	cwd?: string;
 	env?: Record<string, string>;
+	signal?: AbortSignal;
 }) => Promise<ExecSpawnResult>;
 
 export interface ExecExecutorOptions {
@@ -66,6 +67,7 @@ export async function defaultSpawn(
 		command: string;
 		cwd?: string;
 		env?: Record<string, string>;
+		signal?: AbortSignal;
 	},
 	spawnImpl: typeof nodeSpawn = nodeSpawn,
 ): Promise<ExecSpawnResult> {
@@ -80,14 +82,46 @@ export async function defaultSpawn(
 		let stdoutBytes = 0;
 		let stderrBytes = 0;
 		let settled = false;
+		let forceKillTimer: NodeJS.Timeout | undefined;
+
+		const cleanupAbort = () => {
+			if (options.signal) {
+				options.signal.removeEventListener('abort', abortHandler);
+			}
+			if (forceKillTimer) {
+				clearTimeout(forceKillTimer);
+				forceKillTimer = undefined;
+			}
+		};
 
 		const fail = (error: Error) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
+			cleanupAbort();
 			child.kill('SIGTERM');
 			reject(error);
+		};
+
+		const abortHandler = () => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			child.kill('SIGTERM');
+			forceKillTimer = setTimeout(() => {
+				if (!child.killed) {
+					child.kill('SIGKILL');
+				}
+			}, 250);
+			const abortError =
+				options.signal?.reason instanceof Error
+					? options.signal.reason
+					: Object.assign(new Error('Exec command aborted'), {
+							name: 'AbortError',
+						});
+			reject(abortError);
 		};
 
 		child.stdout.on('data', (chunk) => {
@@ -111,9 +145,11 @@ export async function defaultSpawn(
 		child.on('error', fail);
 		child.on('close', (code, signal) => {
 			if (settled) {
+				cleanupAbort();
 				return;
 			}
 			settled = true;
+			cleanupAbort();
 			resolve({
 				code,
 				signal,
@@ -121,6 +157,13 @@ export async function defaultSpawn(
 				stdout: decodeOutput(stdoutChunks),
 			});
 		});
+		if (options.signal) {
+			if (options.signal.aborted) {
+				abortHandler();
+				return;
+			}
+			options.signal.addEventListener('abort', abortHandler, { once: true });
+		}
 	});
 }
 
@@ -165,6 +208,7 @@ export class ExecExecutor implements Executor<ExecStepDefinition> {
 			command: payload.command,
 			cwd,
 			env,
+			signal: context.signal,
 		});
 		const envKeys = env ? Object.keys(env).sort() : [];
 		const normalizedResult = {

@@ -54,6 +54,7 @@ describe('ExecExecutor (E3)', () => {
 			env: {
 				REPORT_NAME: 'parser',
 			},
+			signal: context.signal,
 		});
 		expect(result).toEqual({
 			artifacts: [
@@ -197,6 +198,33 @@ describe('ExecExecutor (E3)', () => {
 		await expect(spawnPromise).rejects.toThrow(
 			`Exec command stdout exceeded ${DEFAULT_EXEC_MAX_OUTPUT_BYTES} bytes`,
 		);
+		expect(kill).toHaveBeenCalledWith('SIGTERM');
+	});
+
+	it('aborts the child process when the execution signal is canceled', async () => {
+		const stdout = new EventEmitter();
+		const stderr = new EventEmitter();
+		const kill = vi.fn();
+		const child = new EventEmitter() as ChildProcess;
+		child.kill = kill;
+		child.stdout = stdout as ChildProcess['stdout'];
+		child.stderr = stderr as ChildProcess['stderr'];
+		const spawnMock = vi.fn().mockReturnValue(child);
+		const controller = new AbortController();
+
+		const spawnPromise = defaultSpawn(
+			{
+				command: 'sleep 10',
+				signal: controller.signal,
+			},
+			spawnMock,
+		);
+
+		controller.abort();
+
+		await expect(spawnPromise).rejects.toMatchObject({
+			name: 'AbortError',
+		});
 		expect(kill).toHaveBeenCalledWith('SIGTERM');
 	});
 });

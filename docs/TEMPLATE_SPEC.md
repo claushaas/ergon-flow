@@ -210,6 +210,8 @@ kind | yes | Step type |
 name | no | Human readable name |
 description | no | Step explanation |
 depends_on | no | Dependency list |
+retry | no | Retry policy for recoverable failures |
+timeout_ms | no | Positive integer timeout in milliseconds |
 
 Example:
 
@@ -321,6 +323,14 @@ Example:
 command | yes |
 cwd | optional |
 env | optional |
+timeout_ms | optional |
+
+Runtime contract:
+
+- when `timeout_ms` is set, the worker aborts the running step after the
+  configured deadline
+- exec cancellation is cooperative first (`SIGTERM`) and escalates to
+  `SIGKILL` if the child process does not exit promptly
 
 ---
 

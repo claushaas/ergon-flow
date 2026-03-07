@@ -476,6 +476,16 @@ function validateStepRequiredFields(
 	errors: TemplateValidationError[],
 ): void {
 	const stepPath = `steps[${index}]`;
+	if (
+		step.timeout_ms !== undefined &&
+		(!Number.isInteger(step.timeout_ms) || step.timeout_ms <= 0)
+	) {
+		pushError(
+			errors,
+			`${stepPath}.timeout_ms`,
+			'timeout_ms must be a positive integer',
+		);
+	}
 
 	switch (step.kind) {
 		case 'agent': {
