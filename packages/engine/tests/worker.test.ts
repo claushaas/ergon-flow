@@ -493,4 +493,83 @@ steps:
 
 		db.close();
 	});
+
+	it('refuses to execute a run when the workflow source changes after scheduling', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.worker.drift
+  version: 1
+steps:
+  - id: drift.exec
+    kind: exec
+    command: "echo initial"
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.worker.drift',
+			sourcePath,
+			version: 1,
+		});
+		createRun(
+			db,
+			'test.worker.drift',
+			{},
+			{
+				id: 'run-worker-drift',
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		writeFileSync(
+			path.join(rootDir, sourcePath),
+			`
+workflow:
+  id: test.worker.drift
+  version: 1
+steps:
+  - id: drift.exec
+    kind: exec
+    command: "echo changed"
+`,
+			'utf8',
+		);
+
+		const executors = new ExecutorRegistry([
+			new ExecExecutor({
+				async spawn() {
+					return {
+						code: 0,
+						signal: null,
+						stderr: '',
+						stdout: 'should not run\n',
+					};
+				},
+			}),
+		]);
+
+		await expect(
+			startWorker({
+				db,
+				executors,
+				maxRuns: 1,
+				pollIntervalMs: 5,
+				rootDir,
+				workerId: 'worker-drift',
+			}),
+		).rejects.toThrow(
+			'Workflow run "run-worker-drift" cannot execute because the registered workflow source changed after scheduling',
+		);
+
+		db.close();
+	});
 });

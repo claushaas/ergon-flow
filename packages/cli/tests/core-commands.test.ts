@@ -472,4 +472,54 @@ steps:
 		).toEqual(['workflow_scheduled', 'workflow_canceled']);
 		verificationDb.close();
 	});
+
+	it('rejects manual approve/reject after the run has already been canceled', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		const db = openStorageDb({ dbPath });
+
+		registerWorkflow(db, {
+			hash: 'hash-cancel-decision-v1',
+			id: 'code.cancel.decision',
+			sourcePath: 'library/workflows/code.cancel.decision.yaml',
+			version: 1,
+		});
+		const run = createRun(
+			db,
+			'code.cancel.decision',
+			{},
+			{
+				workflowHash: 'hash-cancel-decision-v1',
+				workflowVersion: 1,
+			},
+		);
+		const claim = claimNextRun(db, 'worker-4', 30_000);
+		expect(claim?.id).toBe(run.id);
+		updateRunCursor(db, run.id, 'worker-4', claim?.claim_epoch ?? 1, 0, 'gate');
+		const stepRun = createStepRun(db, run.id, 'gate', 1, 'manual');
+		updateStepRunStatus(db, stepRun.id, 'waiting_manual', {
+			finishedAt: new Date().toISOString(),
+			startedAt: new Date().toISOString(),
+		});
+		markRunWaitingManual(db, run.id, 'worker-4', claim?.claim_epoch ?? 1);
+		db.close();
+
+		const canceledRun = cancelWorkflowRun(run.id, { dbPath, rootDir });
+		expect(canceledRun.status).toBe('canceled');
+
+		expect(() =>
+			decideManualStep(run.id, 'gate', {
+				dbPath,
+				decision: 'approve',
+				rootDir,
+			}),
+		).toThrow(`Workflow run "${run.id}" is not waiting for manual approval`);
+		expect(() =>
+			decideManualStep(run.id, 'gate', {
+				dbPath,
+				decision: 'reject',
+				rootDir,
+			}),
+		).toThrow(`Workflow run "${run.id}" is not waiting for manual approval`);
+	});
 });
