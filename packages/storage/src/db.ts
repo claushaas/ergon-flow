@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,19 @@ const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 const DEFAULT_MIGRATIONS_DIR = fileURLToPath(
 	new URL('./migrations', import.meta.url),
 );
+const SOURCE_MIGRATIONS_DIR = fileURLToPath(
+	new URL('../src/migrations', import.meta.url),
+);
+
+function resolveMigrationsDir(migrationsDir?: string): string {
+	if (migrationsDir) {
+		return migrationsDir;
+	}
+	if (existsSync(DEFAULT_MIGRATIONS_DIR)) {
+		return DEFAULT_MIGRATIONS_DIR;
+	}
+	return SOURCE_MIGRATIONS_DIR;
+}
 
 export function openStorageDb(options: StorageDbOptions): DatabaseSync {
 	const dbPath = path.resolve(options.dbPath);
@@ -25,7 +38,7 @@ export function openStorageDb(options: StorageDbOptions): DatabaseSync {
 	const db = new DatabaseSync(dbPath);
 	try {
 		applyPragmas(db, options.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS);
-		runMigrations(db, options.migrationsDir ?? DEFAULT_MIGRATIONS_DIR);
+		runMigrations(db, resolveMigrationsDir(options.migrationsDir));
 		return db;
 	} catch (error) {
 		db.close();

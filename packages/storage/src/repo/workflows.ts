@@ -30,12 +30,33 @@ export function getWorkflow(
 	return (row as WorkflowRow | undefined) ?? null;
 }
 
+export function listWorkflows(db: DatabaseSync): WorkflowRow[] {
+	return db
+		.prepare(
+			`SELECT * FROM workflows
+			 ORDER BY id ASC, version DESC;`,
+		)
+		.all() as unknown as WorkflowRow[];
+}
+
 export function registerWorkflow(
 	db: DatabaseSync,
 	input: RegisterWorkflowInput,
 ): WorkflowRow {
-	const now = nowIso();
+	const existing = getWorkflow(db, input.id, input.version);
+	if (existing) {
+		if (
+			existing.hash !== input.hash ||
+			existing.source_path !== input.sourcePath
+		) {
+			throw new Error(
+				`Workflow "${input.id}"@${input.version} is immutable once registered`,
+			);
+		}
+		return existing;
+	}
 
+	const now = nowIso();
 	const row = db
 		.prepare(
 			`INSERT INTO workflows (
@@ -47,11 +68,6 @@ export function registerWorkflow(
 				created_at,
 				updated_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(id, version) DO UPDATE SET
-				description = excluded.description,
-				source_path = excluded.source_path,
-				hash = excluded.hash,
-				updated_at = excluded.updated_at
 			RETURNING *;`,
 		)
 		.get(
@@ -66,6 +82,6 @@ export function registerWorkflow(
 
 	return assertRow<WorkflowRow>(
 		row,
-		`Failed to load workflow ${input.id}@${input.version} after upsert`,
+		`Failed to load workflow ${input.id}@${input.version} after insert`,
 	);
 }

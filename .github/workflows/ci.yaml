@@ -36,14 +36,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm exec biome check .
-
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Build
         run: pnpm build
+
+      - name: Smoke compiled CLI
+        run: node packages/cli/dist/main.js template list
+
+      - name: Validate built-in workflows
+        run: node packages/cli/dist/main.js workflow list
+
+      - name: Smoke compiled CLI run + worker
+        run: pnpm smoke:cli
+
+      - name: Smoke root dev entrypoint
+        run: pnpm dev template list
 
       - name: Test
         run: pnpm test

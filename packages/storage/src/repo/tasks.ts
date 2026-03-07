@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { runInTransaction } from '../db.js';
+import { appendEventInTransaction } from './events.js';
 import { assertRow, optionalJson, toJson } from './utils.js';
 
 export type WorkflowRunStatus =
@@ -30,6 +31,7 @@ export type StepRunStatus =
 export interface WorkflowRunRow {
 	attempt: number;
 	claimed_by: string | null;
+	claim_epoch: number;
 	context_json: string | null;
 	created_at: string;
 	current_step_id: string | null;
@@ -116,6 +118,30 @@ export interface RunResultOptions {
 	result?: unknown;
 }
 
+export interface RunClaim {
+	claimEpoch: number;
+	workerId: string;
+}
+
+export type ManualDecision = 'approve' | 'reject';
+
+export interface DecideManualStepOptions {
+	actor: string;
+	decidedAt?: string;
+}
+
+export interface DecideManualStepResult {
+	decision: ManualDecision;
+	run: WorkflowRunRow;
+	stepRunId: string;
+}
+
+export interface CancelRunOptions {
+	actor: string;
+	finishedAt?: string;
+	reason?: string;
+}
+
 function addMilliseconds(
 	isoTimestamp: string,
 	leaseDurationMs: number,
@@ -134,43 +160,66 @@ export function createRun(
 		workflowVersion: number;
 	},
 ): WorkflowRunRow {
-	const runId = options.id ?? randomUUID();
-	const scheduledAt = options.scheduledAt ?? new Date().toISOString();
-	const now = new Date().toISOString();
+	return runInTransaction(
+		db,
+		() => {
+			const runId = options.id ?? randomUUID();
+			const scheduledAt = options.scheduledAt ?? new Date().toISOString();
+			const now = new Date().toISOString();
 
-	const row = db
-		.prepare(
-			`INSERT INTO workflow_runs (
-				id,
-				workflow_id,
-				workflow_version,
-				workflow_hash,
-				status,
-				priority,
-				scheduled_at,
-				inputs_json,
-				context_json,
-				created_at,
-				updated_at
-			) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
-			RETURNING *;`,
-		)
-		.get(
-			runId,
-			workflowId,
-			options.workflowVersion,
-			options.workflowHash,
-			options.priority ?? 0,
-			scheduledAt,
-			toJson(inputs),
-			optionalJson(options.context),
-			now,
-			now,
-		);
+			const row = db
+				.prepare(
+					`INSERT INTO workflow_runs (
+						id,
+						workflow_id,
+						workflow_version,
+						workflow_hash,
+						status,
+						priority,
+						scheduled_at,
+						inputs_json,
+						context_json,
+						created_at,
+						updated_at
+					) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+					RETURNING *;`,
+				)
+				.get(
+					runId,
+					workflowId,
+					options.workflowVersion,
+					options.workflowHash,
+					options.priority ?? 0,
+					scheduledAt,
+					toJson(inputs),
+					optionalJson(options.context),
+					now,
+					now,
+				);
 
-	return assertRow<WorkflowRunRow>(
-		row,
-		`Failed to load workflow_run ${runId} after insert`,
+			const createdRun = assertRow<WorkflowRunRow>(
+				row,
+				`Failed to load workflow_run ${runId} after insert`,
+			);
+			appendEventInTransaction(
+				db,
+				runId,
+				'workflow_scheduled',
+				{
+					priority: createdRun.priority,
+					scheduled_at: createdRun.scheduled_at,
+					workflow_hash: createdRun.workflow_hash,
+					workflow_id: createdRun.workflow_id,
+					workflow_version: createdRun.workflow_version,
+				},
+				{
+					actor: 'system',
+					ts: createdRun.scheduled_at,
+				},
+			);
+			return createdRun;
+		},
+		{ mode: 'IMMEDIATE' },
 	);
 }
 
@@ -219,6 +268,43 @@ export function listStepRuns(db: DatabaseSync, runId: string): StepRunRow[] {
 			 ORDER BY created_at ASC, attempt ASC, id ASC;`,
 		)
 		.all(runId) as unknown as StepRunRow[];
+}
+
+export function getLatestStepRun(
+	db: DatabaseSync,
+	runId: string,
+	stepId: string,
+): StepRunRow | null {
+	const row = db
+		.prepare(
+			`SELECT * FROM step_runs
+			 WHERE run_id = ?
+			   AND step_id = ?
+			 ORDER BY attempt DESC, created_at DESC, id DESC
+			 LIMIT 1;`,
+		)
+		.get(runId, stepId);
+
+	return (row as unknown as StepRunRow | undefined) ?? null;
+}
+
+export function getWaitingManualStepRun(
+	db: DatabaseSync,
+	runId: string,
+	stepId: string,
+): StepRunRow | null {
+	const row = db
+		.prepare(
+			`SELECT * FROM step_runs
+			 WHERE run_id = ?
+			   AND step_id = ?
+			   AND status = 'waiting_manual'
+			 ORDER BY attempt DESC, created_at DESC, id DESC
+			 LIMIT 1;`,
+		)
+		.get(runId, stepId);
+
+	return (row as unknown as StepRunRow | undefined) ?? null;
 }
 
 export function createStepRun(
@@ -338,6 +424,7 @@ export function claimNextRun(
 					 SET status = 'running',
 					     claimed_by = ?,
 					     lease_until = ?,
+					     claim_epoch = claim_epoch + 1,
 					     attempt = CASE
 					       WHEN status = 'running' THEN attempt + 1
 					       ELSE attempt
@@ -372,6 +459,7 @@ export function renewLease(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
+	claimEpoch: number,
 	leaseDurationMs: number,
 ): WorkflowRunRow | null {
 	const now = new Date().toISOString();
@@ -384,10 +472,11 @@ export function renewLease(
 			     updated_at = ?
 			 WHERE id = ?
 			   AND claimed_by = ?
+			   AND claim_epoch = ?
 			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(leaseUntil, now, runId, workerId);
+		.get(leaseUntil, now, runId, workerId, claimEpoch);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
@@ -396,6 +485,7 @@ export function updateRunCursor(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
+	claimEpoch: number,
 	currentStepIndex: number,
 	currentStepId: string | null,
 ): WorkflowRunRow | null {
@@ -408,10 +498,11 @@ export function updateRunCursor(
 			     updated_at = ?
 			 WHERE id = ?
 			   AND claimed_by = ?
+			   AND claim_epoch = ?
 			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(currentStepIndex, currentStepId, now, runId, workerId);
+		.get(currentStepIndex, currentStepId, now, runId, workerId, claimEpoch);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
@@ -420,6 +511,7 @@ export function markRunSucceeded(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
+	claimEpoch: number,
 	options: RunResultOptions = {},
 ): WorkflowRunRow | null {
 	const now = options.finishedAt ?? new Date().toISOString();
@@ -437,10 +529,11 @@ export function markRunSucceeded(
 			     updated_at = ?
 			 WHERE id = ?
 			   AND claimed_by = ?
+			   AND claim_epoch = ?
 			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(optionalJson(options.result), now, now, runId, workerId);
+		.get(optionalJson(options.result), now, now, runId, workerId, claimEpoch);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
 }
@@ -449,6 +542,7 @@ export function markRunFailed(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
+	claimEpoch: number,
 	options: RunFailureOptions = {},
 ): WorkflowRunRow | null {
 	const now = options.finishedAt ?? new Date().toISOString();
@@ -465,6 +559,7 @@ export function markRunFailed(
 			     updated_at = ?
 			 WHERE id = ?
 			   AND claimed_by = ?
+			   AND claim_epoch = ?
 			   AND status = 'running'
 			 RETURNING *;`,
 		)
@@ -476,6 +571,7 @@ export function markRunFailed(
 			now,
 			runId,
 			workerId,
+			claimEpoch,
 		);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
@@ -485,6 +581,7 @@ export function markRunWaitingManual(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
+	claimEpoch: number,
 ): WorkflowRunRow | null {
 	const now = new Date().toISOString();
 	const row = db
@@ -496,18 +593,281 @@ export function markRunWaitingManual(
 			     updated_at = ?
 			 WHERE id = ?
 			   AND claimed_by = ?
+			   AND claim_epoch = ?
 			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(now, runId, workerId);
+		.get(now, runId, workerId, claimEpoch);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function requeueRunFromManual(
+	db: DatabaseSync,
+	runId: string,
+): WorkflowRunRow | null {
+	const now = new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'queued',
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     error_code = NULL,
+			     error_message = NULL,
+			     error_detail_json = NULL,
+			     finished_at = NULL,
+			     updated_at = ?
+			 WHERE id = ?
+			   AND status = 'waiting_manual'
+			 RETURNING *;`,
+		)
+		.get(now, runId);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function failRunFromManual(
+	db: DatabaseSync,
+	runId: string,
+	options: RunFailureOptions = {},
+): WorkflowRunRow | null {
+	const now = options.finishedAt ?? new Date().toISOString();
+	const row = db
+		.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'failed',
+			     error_code = ?,
+			     error_message = ?,
+			     error_detail_json = ?,
+			     claimed_by = NULL,
+			     lease_until = NULL,
+			     finished_at = ?,
+			     updated_at = ?
+			 WHERE id = ?
+			   AND status = 'waiting_manual'
+			 RETURNING *;`,
+		)
+		.get(
+			options.errorCode ?? null,
+			options.errorMessage ?? null,
+			optionalJson(options.errorDetail),
+			now,
+			now,
+			runId,
+		);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function decideManualStep(
+	db: DatabaseSync,
+	runId: string,
+	stepId: string,
+	decision: ManualDecision,
+	options: DecideManualStepOptions,
+): DecideManualStepResult {
+	return runInTransaction(
+		db,
+		() => {
+			const run = getRun(db, runId);
+			if (!run) {
+				throw new Error(`Workflow run "${runId}" was not found`);
+			}
+			if (run.status !== 'waiting_manual') {
+				throw new Error(
+					`Workflow run "${runId}" is not waiting for manual approval`,
+				);
+			}
+			if (run.current_step_id !== stepId) {
+				throw new Error(
+					`Workflow run "${runId}" is waiting on step "${run.current_step_id ?? 'unknown'}", not "${stepId}"`,
+				);
+			}
+
+			const waitingStepRun = getWaitingManualStepRun(db, runId, stepId);
+			if (!waitingStepRun) {
+				throw new Error(
+					`Manual step "${stepId}" is not waiting for approval on run "${runId}"`,
+				);
+			}
+
+			const decisionAt = options.decidedAt ?? new Date().toISOString();
+			appendEventInTransaction(
+				db,
+				runId,
+				decision === 'approve' ? 'manual_approved' : 'manual_rejected',
+				{
+					decision,
+					run_id: runId,
+					step_id: stepId,
+					step_run_id: waitingStepRun.id,
+				},
+				{
+					actor: options.actor,
+					stepRunId: waitingStepRun.id,
+					ts: decisionAt,
+				},
+			);
+
+			if (decision === 'approve') {
+				const queuedRun = requeueRunFromManual(db, runId);
+				if (!queuedRun) {
+					throw new Error(
+						`Workflow run "${runId}" could not be requeued after approval`,
+					);
+				}
+
+				return {
+					decision,
+					run: queuedRun,
+					stepRunId: waitingStepRun.id,
+				};
+			}
+
+			const errorMessage = `Manual step "${stepId}" was rejected`;
+			updateStepRunStatus(db, waitingStepRun.id, 'failed', {
+				errorCode: 'manual_rejected',
+				errorDetail: {
+					actor: options.actor,
+				},
+				errorMessage,
+				finishedAt: decisionAt,
+				output: {
+					actor: options.actor,
+					decided_at: decisionAt,
+					decision: 'reject',
+				},
+			});
+			appendEventInTransaction(
+				db,
+				runId,
+				'step_failed',
+				{
+					error_code: 'manual_rejected',
+					message: errorMessage,
+					step_id: stepId,
+				},
+				{
+					actor: options.actor,
+					stepRunId: waitingStepRun.id,
+					ts: decisionAt,
+				},
+			);
+
+			const failedRun = failRunFromManual(db, runId, {
+				errorCode: 'manual_rejected',
+				errorDetail: {
+					actor: options.actor,
+					step_id: stepId,
+					step_run_id: waitingStepRun.id,
+				},
+				errorMessage,
+				finishedAt: decisionAt,
+			});
+			if (!failedRun) {
+				throw new Error(
+					`Workflow run "${runId}" could not be marked as failed after rejection`,
+				);
+			}
+
+			appendEventInTransaction(
+				db,
+				runId,
+				'workflow_failed',
+				{
+					error_code: 'manual_rejected',
+					message: errorMessage,
+				},
+				{
+					actor: options.actor,
+					ts: decisionAt,
+				},
+			);
+
+			return {
+				decision,
+				run: failedRun,
+				stepRunId: waitingStepRun.id,
+			};
+		},
+		{ mode: 'IMMEDIATE' },
+	);
+}
+
+export function cancelRun(
+	db: DatabaseSync,
+	runId: string,
+	options: CancelRunOptions,
+): WorkflowRunRow {
+	return runInTransaction(
+		db,
+		() => {
+			const run = getRun(db, runId);
+			if (!run) {
+				throw new Error(`Workflow run "${runId}" was not found`);
+			}
+
+			if (run.status === 'failed' || run.status === 'succeeded') {
+				throw new Error(
+					`Workflow run "${runId}" is already ${run.status} and cannot be canceled`,
+				);
+			}
+
+			if (run.status === 'canceled') {
+				return run;
+			}
+
+			const finishedAt = options.finishedAt ?? new Date().toISOString();
+			const row = db
+				.prepare(
+					`UPDATE workflow_runs
+					 SET status = 'canceled',
+					     claimed_by = NULL,
+					     lease_until = NULL,
+					     finished_at = ?,
+					     updated_at = ?
+					 WHERE id = ?
+					   AND status IN ('queued', 'running', 'waiting_manual')
+					 RETURNING *;`,
+				)
+				.get(finishedAt, finishedAt, runId);
+
+			if (!row) {
+				const currentRun = getRun(db, runId);
+				const statusInfo = currentRun
+					? `status is "${currentRun.status}"`
+					: 'it no longer exists';
+				throw new Error(
+					`Failed to cancel workflow run "${runId}"; its ${statusInfo}.`,
+				);
+			}
+			const canceledRun = row as unknown as WorkflowRunRow;
+
+			appendEventInTransaction(
+				db,
+				runId,
+				'workflow_canceled',
+				{
+					reason: options.reason ?? 'external_cancel',
+				},
+				{
+					actor: options.actor,
+					ts: finishedAt,
+				},
+			);
+
+			return canceledRun;
+		},
+		{ mode: 'IMMEDIATE' },
+	);
 }
 
 export function markRunCanceled(
 	db: DatabaseSync,
 	runId: string,
 	workerId: string,
+	claimEpoch: number,
 	options: RunResultOptions = {},
 ): WorkflowRunRow | null {
 	const now = options.finishedAt ?? new Date().toISOString();
@@ -521,10 +881,57 @@ export function markRunCanceled(
 			     updated_at = ?
 			 WHERE id = ?
 			   AND claimed_by = ?
+			   AND claim_epoch = ?
 			   AND status = 'running'
 			 RETURNING *;`,
 		)
-		.get(now, now, runId, workerId);
+		.get(now, now, runId, workerId, claimEpoch);
 
 	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+function getRunForClaimInTransaction(
+	db: DatabaseSync,
+	runId: string,
+	claim: RunClaim,
+): WorkflowRunRow | null {
+	const row = db
+		.prepare(
+			`SELECT * FROM workflow_runs
+			 WHERE id = ?
+			   AND claimed_by = ?
+			   AND claim_epoch = ?
+			   AND status = 'running'
+			 LIMIT 1;`,
+		)
+		.get(runId, claim.workerId, claim.claimEpoch);
+
+	return (row as unknown as WorkflowRunRow | undefined) ?? null;
+}
+
+export function getRunForClaim(
+	db: DatabaseSync,
+	runId: string,
+	claim: RunClaim,
+): WorkflowRunRow | null {
+	return getRunForClaimInTransaction(db, runId, claim);
+}
+
+export function withRunClaim<T>(
+	db: DatabaseSync,
+	runId: string,
+	claim: RunClaim,
+	callback: (run: WorkflowRunRow) => T,
+): T | null {
+	return runInTransaction(
+		db,
+		() => {
+			const run = getRunForClaimInTransaction(db, runId, claim);
+			if (!run) {
+				return null;
+			}
+			return callback(run);
+		},
+		{ mode: 'IMMEDIATE' },
+	);
 }

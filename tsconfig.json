@@ -4,7 +4,6 @@
 		{ "path": "./packages/shared" },
 		{ "path": "./packages/clients" },
 		{ "path": "./packages/storage" },
-		{ "path": "./packages/executors" },
 		{ "path": "./packages/engine" },
 		{ "path": "./packages/cli" }
 	]

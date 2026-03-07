@@ -1,7 +1,8 @@
 import {
+	type CliClientOptions,
 	createClientRegistry,
 	type ProviderConfigMap,
-} from '../../clients/src/index.js';
+} from '@ergon/clients';
 import { AgentExecutor } from './executors/agent.js';
 import { ArtifactExecutor } from './executors/artifact.js';
 import { ConditionExecutor } from './executors/condition.js';
@@ -34,6 +35,11 @@ export function createDefaultExecutorRegistry(
 		new ConditionExecutor(),
 		new ExecExecutor(options.exec),
 		new ManualExecutor(),
-		new NotifyExecutor(options.notify),
+		new NotifyExecutor({
+			...options.notify,
+			openclaw: options.providerConfigs?.openclaw as
+				| CliClientOptions
+				| undefined,
+		}),
 	]);
 }

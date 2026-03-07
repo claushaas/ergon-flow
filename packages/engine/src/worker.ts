@@ -22,6 +22,7 @@ import {
 import type { ExecutorRegistry } from './executors/index.js';
 import { executeRun } from './runner.js';
 import { loadAndValidateTemplateFromFile } from './templating/index.js';
+import { assertWorkflowTemplateIdentity } from './workflowIdentity.js';
 
 export interface StartWorkerOptions {
 	artifactBaseDir?: string;
@@ -169,11 +170,21 @@ function loadTemplateForRun(
 			`Workflow "${run.workflow_id}"@${run.workflow_version} was not found`,
 		);
 	}
+	if (workflow.hash !== run.workflow_hash) {
+		throw new Error(
+			`Workflow run "${run.id}" cannot execute because its scheduled hash no longer matches the registered workflow`,
+		);
+	}
 
 	const templatePath = resolvePathWithinBase(
 		rootDir,
 		workflow.source_path,
 		'workflow source_path',
+	);
+	assertWorkflowTemplateIdentity(
+		templatePath,
+		run.workflow_hash,
+		`Workflow run "${run.id}" cannot execute because the workflow source changed after scheduling`,
 	);
 
 	return loadAndValidateTemplateFromFile(templatePath).template;
@@ -196,7 +207,7 @@ function getStepToRecover(
 function recoverExpiredLeaseStep(
 	db: DatabaseSync,
 	run: WorkflowRunRow,
-	workerId: string,
+	claim: { claimEpoch: number; workerId: string },
 	rootDir: string,
 ): ReturnType<typeof getRun> {
 	if (run.attempt <= 0) {
@@ -216,7 +227,7 @@ function recoverExpiredLeaseStep(
 	const failureMessage = `Step "${step.id}" lost its lease while running`;
 	const failureDetail = {
 		reason: 'lease_expired',
-		recovered_by: workerId,
+		recovered_by: claim.workerId,
 		stale_attempt: runningStepRun.attempt,
 		step_id: step.id,
 	};
@@ -238,7 +249,7 @@ function recoverExpiredLeaseStep(
 			step_id: step.id,
 		},
 		{
-			actor: createWorkerActor(workerId),
+			actor: createWorkerActor(claim.workerId),
 			stepRunId: runningStepRun.id,
 		},
 	);
@@ -255,7 +266,7 @@ function recoverExpiredLeaseStep(
 				step_id: step.id,
 			},
 			{
-				actor: createWorkerActor(workerId),
+				actor: createWorkerActor(claim.workerId),
 				stepRunId: runningStepRun.id,
 			},
 		);
@@ -273,10 +284,10 @@ function recoverExpiredLeaseStep(
 			step_id: step.id,
 		},
 		{
-			actor: createWorkerActor(workerId),
+			actor: createWorkerActor(claim.workerId),
 		},
 	);
-	markRunFailed(db, run.id, workerId, {
+	markRunFailed(db, run.id, claim.workerId, claim.claimEpoch, {
 		errorCode: failureCode,
 		errorDetail: failureDetail,
 		errorMessage: failureMessage,
@@ -319,7 +330,13 @@ function startLeaseRenewalLoop(
 
 		renewing = true;
 		try {
-			const renewedRun = renewLease(db, run.id, workerId, leaseDurationMs);
+			const renewedRun = renewLease(
+				db,
+				run.id,
+				workerId,
+				run.claim_epoch,
+				leaseDurationMs,
+			);
 			if (!renewedRun) {
 				clearInterval(timer);
 				return;
@@ -354,7 +371,10 @@ async function executeClaimedRun(
 	const recoveredRun = recoverExpiredLeaseStep(
 		options.db,
 		run,
-		options.workerId,
+		{
+			claimEpoch: run.claim_epoch,
+			workerId: options.workerId,
+		},
 		path.resolve(options.rootDir ?? process.cwd()),
 	);
 	if (recoveredRun?.status === 'failed') {
@@ -383,18 +403,26 @@ async function executeClaimedRun(
 	);
 
 	try {
-		await executeRun(run.id, options.workerId, {
-			artifactBaseDir: options.artifactBaseDir,
-			db: options.db,
-			executors: options.executors,
-			rootDir: options.rootDir,
-		});
+		await executeRun(
+			run.id,
+			{
+				claimEpoch: run.claim_epoch,
+				workerId: options.workerId,
+			},
+			{
+				artifactBaseDir: options.artifactBaseDir,
+				db: options.db,
+				executors: options.executors,
+				rootDir: options.rootDir,
+			},
+		);
 	} catch (error) {
 		const currentRun = getRun(options.db, run.id);
 		if (
 			currentRun &&
 			currentRun.status === 'running' &&
-			currentRun.claimed_by === options.workerId
+			currentRun.claimed_by === options.workerId &&
+			currentRun.claim_epoch === run.claim_epoch
 		) {
 			const { detail, message } = describeError(error);
 			appendEvent(
@@ -408,7 +436,7 @@ async function executeClaimedRun(
 					actor: createWorkerActor(options.workerId),
 				},
 			);
-			markRunFailed(options.db, run.id, options.workerId, {
+			markRunFailed(options.db, run.id, options.workerId, run.claim_epoch, {
 				errorCode: 'exec_failed',
 				errorDetail: {
 					...detail,

@@ -58,6 +58,9 @@ steps:
     description: "Analyze current structure, risks, and refactor approach. Produce an analysis artifact."
     provider: openrouter
     model: deepseek/deepseek-v3.2
+    output:
+      name: analysis
+      type: analysis
     prompt: |
       You are an expert software engineer.
 
@@ -89,6 +92,9 @@ steps:
     description: "Turn analysis into an ordered plan with checkpoints."
     provider: openrouter
     model: moonshotai/kimi-k2.5
+    output:
+      name: plan
+      type: plan
     prompt: |
       You are creating an implementation plan for a refactor.
 
@@ -115,6 +121,9 @@ steps:
     name: "Generate patch"
     description: "Generate a unified diff patch implementing the plan."
     provider: codex
+    output:
+      name: patch
+      type: text
     prompt: |
       You are an AI coding agent. Generate a unified diff patch.
 
@@ -169,6 +178,9 @@ steps:
     name: "Review changes"
     description: "Review the patch and test results. Provide final PR text and any follow-ups."
     provider: claude-code
+    output:
+      name: review
+      type: json
     prompt: |
       You are a meticulous code reviewer.
 
@@ -188,7 +200,7 @@ steps:
       {{ inputs.test_command }}
 
       Test execution result (may be empty if skipped):
-      {{ artifacts.tests_exec }}
+      {{ artifacts.tests.exec.stdout }}
 
       Produce structured JSON with keys:
       - summary

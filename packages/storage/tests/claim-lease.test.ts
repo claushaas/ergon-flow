@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+	cancelRun,
 	claimNextRun,
 	createRun,
+	listEvents,
 	markRunCanceled,
 	markRunFailed,
 	markRunSucceeded,
@@ -107,12 +109,24 @@ describe('claim and lease primitives (B3)', () => {
 		const claimed = claimNextRun(db, 'worker-1', 30_000);
 		expect(claimed?.status).toBe('running');
 		expect(claimed?.claimed_by).toBe('worker-1');
+		expect(claimed?.claim_epoch).toBe(1);
 
-		const renewed = renewLease(db, 'run-lease', 'worker-1', 90_000);
+		const renewed = renewLease(
+			db,
+			'run-lease',
+			'worker-1',
+			claimed?.claim_epoch ?? 1,
+			90_000,
+		);
 		expect(renewed?.id).toBe('run-lease');
 		expect(renewed?.lease_until).toBeTruthy();
 
-		const waitingManual = markRunWaitingManual(db, 'run-lease', 'worker-1');
+		const waitingManual = markRunWaitingManual(
+			db,
+			'run-lease',
+			'worker-1',
+			claimed?.claim_epoch ?? 1,
+		);
 		expect(waitingManual?.status).toBe('waiting_manual');
 		expect(waitingManual?.claimed_by).toBeNull();
 		expect(waitingManual?.lease_until).toBeNull();
@@ -121,6 +135,7 @@ describe('claim and lease primitives (B3)', () => {
 			db,
 			'run-lease',
 			'worker-2',
+			claimed?.claim_epoch ?? 1,
 		);
 		expect(waitingManualWrongWorker).toBeNull();
 
@@ -134,22 +149,30 @@ describe('claim and lease primitives (B3)', () => {
 				workflowVersion: 1,
 			},
 		);
-		claimNextRun(db, 'worker-1', 30_000);
+		const succeedClaim = claimNextRun(db, 'worker-1', 30_000);
 		const succeededWrongWorker = markRunSucceeded(
 			db,
 			'run-succeed',
 			'worker-2',
+			succeedClaim?.claim_epoch ?? 1,
 		);
 		expect(succeededWrongWorker).toBeNull();
-		const succeeded = markRunSucceeded(db, 'run-succeed', 'worker-1', {
-			result: { ok: true },
-		});
+		const succeeded = markRunSucceeded(
+			db,
+			'run-succeed',
+			'worker-1',
+			succeedClaim?.claim_epoch ?? 1,
+			{
+				result: { ok: true },
+			},
+		);
 		expect(succeeded?.status).toBe('succeeded');
 		expect(succeeded?.finished_at).toBeTruthy();
 		const succeededAfterFinished = markRunSucceeded(
 			db,
 			'run-succeed',
 			'worker-1',
+			succeedClaim?.claim_epoch ?? 1,
 		);
 		expect(succeededAfterFinished).toBeNull();
 
@@ -163,14 +186,25 @@ describe('claim and lease primitives (B3)', () => {
 				workflowVersion: 1,
 			},
 		);
-		claimNextRun(db, 'worker-1', 30_000);
-		const failedWrongWorker = markRunFailed(db, 'run-fail', 'worker-2');
+		const failedClaim = claimNextRun(db, 'worker-1', 30_000);
+		const failedWrongWorker = markRunFailed(
+			db,
+			'run-fail',
+			'worker-2',
+			failedClaim?.claim_epoch ?? 1,
+		);
 		expect(failedWrongWorker).toBeNull();
-		const failed = markRunFailed(db, 'run-fail', 'worker-1', {
-			errorCode: 'provider_error',
-			errorDetail: { detail: 'network timeout' },
-			errorMessage: 'provider failed',
-		});
+		const failed = markRunFailed(
+			db,
+			'run-fail',
+			'worker-1',
+			failedClaim?.claim_epoch ?? 1,
+			{
+				errorCode: 'provider_error',
+				errorDetail: { detail: 'network timeout' },
+				errorMessage: 'provider failed',
+			},
+		);
 		expect(failed?.status).toBe('failed');
 		expect(failed?.error_code).toBe('provider_error');
 
@@ -184,10 +218,20 @@ describe('claim and lease primitives (B3)', () => {
 				workflowVersion: 1,
 			},
 		);
-		claimNextRun(db, 'worker-1', 30_000);
-		const canceledWrongWorker = markRunCanceled(db, 'run-cancel', 'worker-2');
+		const canceledClaim = claimNextRun(db, 'worker-1', 30_000);
+		const canceledWrongWorker = markRunCanceled(
+			db,
+			'run-cancel',
+			'worker-2',
+			canceledClaim?.claim_epoch ?? 1,
+		);
 		expect(canceledWrongWorker).toBeNull();
-		const canceled = markRunCanceled(db, 'run-cancel', 'worker-1');
+		const canceled = markRunCanceled(
+			db,
+			'run-cancel',
+			'worker-1',
+			canceledClaim?.claim_epoch ?? 1,
+		);
 		expect(canceled?.status).toBe('canceled');
 		expect(canceled?.finished_at).toBeTruthy();
 
@@ -232,6 +276,74 @@ describe('claim and lease primitives (B3)', () => {
 		expect(reclaimed?.id).toBe('run-reclaim');
 		expect(reclaimed?.claimed_by).toBe('worker-2');
 		expect(reclaimed?.attempt).toBe(1);
+		expect(reclaimed?.claim_epoch).toBe(2);
+
+		db.close();
+	});
+
+	it('cancels queued and waiting_manual runs via external actor', () => {
+		const db = openStorageDb({ dbPath: createTempDbPath() });
+
+		registerWorkflow(db, {
+			hash: 'hash-cancel-v1',
+			id: 'code.cancel',
+			sourcePath: 'library/workflows/code.cancel.yaml',
+			version: 1,
+		});
+
+		const queued = createRun(
+			db,
+			'code.cancel',
+			{},
+			{
+				id: 'run-cancel-queued',
+				workflowHash: 'hash-cancel-v1',
+				workflowVersion: 1,
+			},
+		);
+		const waiting = createRun(
+			db,
+			'code.cancel',
+			{},
+			{
+				id: 'run-cancel-waiting',
+				priority: 1,
+				workflowHash: 'hash-cancel-v1',
+				workflowVersion: 1,
+			},
+		);
+		expect(claimNextRun(db, 'worker-7', 30_000)?.id).toBe(waiting.id);
+		db.prepare(
+			`UPDATE workflow_runs
+			 SET status = 'waiting_manual',
+			     claimed_by = NULL,
+			     lease_until = NULL
+			 WHERE id = ?;`,
+		).run(waiting.id);
+
+		expect(
+			cancelRun(db, queued.id, {
+				actor: 'cli:test-user',
+			}).status,
+		).toBe('canceled');
+		expect(
+			cancelRun(db, waiting.id, {
+				actor: 'cli:test-user',
+			}).status,
+		).toBe('canceled');
+
+		expect(
+			listEvents(db, queued.id).map((event) => [event.type, event.actor]),
+		).toEqual([
+			['workflow_scheduled', 'system'],
+			['workflow_canceled', 'cli:test-user'],
+		]);
+		expect(
+			listEvents(db, waiting.id).map((event) => [event.type, event.actor]),
+		).toEqual([
+			['workflow_scheduled', 'system'],
+			['workflow_canceled', 'cli:test-user'],
+		]);
 
 		db.close();
 	});

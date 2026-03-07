@@ -11,7 +11,8 @@
 	"scripts": {
 		"biome": "biome check --unsafe --write",
 		"build": "tsc --build",
-		"dev": "pnpm --filter @ergon/cli dev",
+		"dev": "pnpm --filter @ergon/cli build && node packages/cli/dist/main.js",
+		"smoke:cli": "node scripts/smoke-cli-run-worker.mjs",
 		"test": "vitest run",
 		"typecheck": "tsc --build --pretty false"
 	},

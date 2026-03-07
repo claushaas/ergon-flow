@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -25,11 +32,17 @@ function createTempRoot(): string {
 }
 
 function writeTemplate(rootDir: string, content: string): string {
-	const templateDir = path.join(rootDir, 'templates');
+	const templateDir = path.join(rootDir, 'library', 'workflows');
 	mkdirSync(templateDir, { recursive: true });
 	const templatePath = path.join(templateDir, 'workflow.yaml');
 	writeFileSync(templatePath, content, 'utf8');
 	return path.relative(rootDir, templatePath);
+}
+
+function hashTemplate(rootDir: string, sourcePath: string): string {
+	return createHash('sha256')
+		.update(readFileSync(path.join(rootDir, sourcePath)))
+		.digest('hex');
 }
 
 afterEach(() => {
@@ -57,9 +70,10 @@ steps:
     command: "echo ok"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-worker-v1',
+			hash: workflowHash,
 			id: 'test.worker',
 			sourcePath,
 			version: 1,
@@ -70,7 +84,7 @@ steps:
 			{ repo: 'acme/repo' },
 			{
 				id: 'run-worker-1',
-				workflowHash: 'hash-worker-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
@@ -165,9 +179,10 @@ steps:
         - exec_failed
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-worker-recovery-v1',
+			hash: workflowHash,
 			id: 'test.worker.recovery',
 			sourcePath,
 			version: 1,
@@ -178,7 +193,7 @@ steps:
 			{},
 			{
 				id: 'run-worker-recovery',
-				workflowHash: 'hash-worker-recovery-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
@@ -218,6 +233,7 @@ steps:
 			db,
 			'run-worker-recovery',
 			'worker-dead',
+			0,
 			0,
 			'recover.exec',
 		);
@@ -287,9 +303,10 @@ steps:
     command: "echo fail"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-worker-recovery-fail-v1',
+			hash: workflowHash,
 			id: 'test.worker.recovery.fail',
 			sourcePath,
 			version: 1,
@@ -300,7 +317,7 @@ steps:
 			{},
 			{
 				id: 'run-worker-recovery-fail',
-				workflowHash: 'hash-worker-recovery-fail-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
@@ -336,6 +353,7 @@ steps:
 			db,
 			'run-worker-recovery-fail',
 			'worker-dead',
+			0,
 			0,
 			'fail.exec',
 		);
@@ -392,9 +410,10 @@ steps:
     command: "echo renamed"
 `,
 		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
 
 		registerWorkflow(db, {
-			hash: 'hash-worker-recovery-mismatch-v1',
+			hash: workflowHash,
 			id: 'test.worker.recovery.mismatch',
 			sourcePath,
 			version: 1,
@@ -405,7 +424,7 @@ steps:
 			{},
 			{
 				id: 'run-worker-recovery-mismatch',
-				workflowHash: 'hash-worker-recovery-mismatch-v1',
+				workflowHash,
 				workflowVersion: 1,
 			},
 		);
@@ -442,6 +461,7 @@ steps:
 			'run-worker-recovery-mismatch',
 			'worker-dead',
 			0,
+			0,
 			'removed.exec',
 		);
 
@@ -469,6 +489,85 @@ steps:
 			}),
 		).rejects.toThrow(
 			'could not resolve recovery step "removed.exec" from the current workflow version',
+		);
+
+		db.close();
+	});
+
+	it('refuses to execute a run when the workflow source changes after scheduling', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.worker.drift
+  version: 1
+steps:
+  - id: drift.exec
+    kind: exec
+    command: "echo initial"
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.worker.drift',
+			sourcePath,
+			version: 1,
+		});
+		createRun(
+			db,
+			'test.worker.drift',
+			{},
+			{
+				id: 'run-worker-drift',
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		writeFileSync(
+			path.join(rootDir, sourcePath),
+			`
+workflow:
+  id: test.worker.drift
+  version: 1
+steps:
+  - id: drift.exec
+    kind: exec
+    command: "echo changed"
+`,
+			'utf8',
+		);
+
+		const executors = new ExecutorRegistry([
+			new ExecExecutor({
+				async spawn() {
+					return {
+						code: 0,
+						signal: null,
+						stderr: '',
+						stdout: 'should not run\n',
+					};
+				},
+			}),
+		]);
+
+		await expect(
+			startWorker({
+				db,
+				executors,
+				maxRuns: 1,
+				pollIntervalMs: 5,
+				rootDir,
+				workerId: 'worker-drift',
+			}),
+		).rejects.toThrow(
+			'Workflow run "run-worker-drift" cannot execute because the registered workflow source changed after scheduling',
 		);
 
 		db.close();

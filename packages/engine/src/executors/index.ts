@@ -33,12 +33,14 @@ export interface ExecutionContext {
 	hasArtifact: (name: string) => boolean;
 	readonly inputs: Readonly<Record<string, unknown>>;
 	readonly run: ExecutionRunMetadata;
+	readonly signal: AbortSignal;
 }
 
 export interface CreateExecutionContextOptions {
 	artifacts?: Record<string, unknown>;
 	inputs: Record<string, unknown>;
 	run: ExecutionRunMetadata;
+	signal?: AbortSignal;
 }
 
 export interface ExecutorResult {
@@ -64,6 +66,7 @@ export function createExecutionContext(
 	const artifacts = Object.freeze({ ...(options.artifacts ?? {}) });
 	const inputs = Object.freeze({ ...options.inputs });
 	const run = Object.freeze({ ...options.run });
+	const signal = options.signal ?? new AbortController().signal;
 
 	return {
 		artifacts,
@@ -81,6 +84,7 @@ export function createExecutionContext(
 		},
 		inputs,
 		run,
+		signal,
 	};
 }
 

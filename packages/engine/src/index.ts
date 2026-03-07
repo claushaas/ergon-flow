@@ -9,7 +9,3 @@ export * from './executors/notify.js';
 export * from './runner.js';
 export * from './templating/index.js';
 export * from './worker.js';
-
-export function runWorkflow(_workflowId: string) {
-	// TODO: workflow execution
-}

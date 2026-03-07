@@ -8,6 +8,7 @@ import {
 	createStepRun,
 	getRun,
 	insertArtifact,
+	listEvents,
 	listRuns,
 	openStorageDb,
 	registerWorkflow,
@@ -53,6 +54,7 @@ describe('storage api (B2)', () => {
 			},
 		);
 		expect(run.status).toBe('queued');
+		expect(run.claim_epoch).toBe(0);
 		expect(run.workflow_id).toBe('code.refactor');
 		expect(run.workflow_version).toBe(1);
 
@@ -114,8 +116,8 @@ describe('storage api (B2)', () => {
 			{ actor: 'worker:test-1', stepRunId: stepRun.id },
 		);
 
-		expect(event1.seq).toBe(1);
-		expect(event2.seq).toBe(2);
+		expect(event1.seq).toBe(2);
+		expect(event2.seq).toBe(3);
 		expect(event2.run_id).toBe(run.id);
 
 		db.close();
@@ -177,5 +179,44 @@ describe('storage api (B2)', () => {
 		expect(secondPage).toHaveLength(1);
 
 		db.close();
+	});
+
+	it('allocates monotonic event seq values across multiple database handles', () => {
+		const dbPath = createTempDbPath();
+		const writerA = openStorageDb({ dbPath });
+		const writerB = openStorageDb({ dbPath });
+
+		registerWorkflow(writerA, {
+			hash: 'workflow-hash-v1',
+			id: 'code.events',
+			sourcePath: 'library/workflows/code.events.yaml',
+			version: 1,
+		});
+		const run = createRun(
+			writerA,
+			'code.events',
+			{},
+			{
+				workflowHash: 'workflow-hash-v1',
+				workflowVersion: 1,
+			},
+		);
+
+		for (let index = 0; index < 10; index += 1) {
+			appendEvent(
+				index % 2 === 0 ? writerA : writerB,
+				run.id,
+				'step_started',
+				{ index },
+				{ actor: `worker:${index}` },
+			);
+		}
+
+		expect(listEvents(writerA, run.id).map((event) => event.seq)).toEqual([
+			1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+		]);
+
+		writerA.close();
+		writerB.close();
 	});
 });
