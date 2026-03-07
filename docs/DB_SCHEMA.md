@@ -1,112 +1,19 @@
-# DB_SCHEMA
+# Ergon Flow DB Schema
 
-TODO: Fill documentation.
+Version: `0.2`
 
-# Ergon Flow — DB Schema (SQLite)
+This document describes the actual SQLite schema and the invariants the runtime
+depends on today.
 
-Version: 0.1  
-Status: Draft
+The canonical DDL lives in:
 
----
+- `packages/storage/src/migrations/0001_init.sql`
+- `packages/storage/src/migrations/0002_indexes.sql`
+- `packages/storage/src/migrations/0003_claim_epoch_backfill.sql`
 
-# 1. Purpose
+## Pragmas
 
-This document specifies the **SQLite schema** for Ergon Flow.
-
-The schema is designed for the **Worker Runtime (Model B)** described in `SPEC.md` and `ARCHITECTURE.md`:
-
-- `ergon run` schedules a workflow run by inserting it into the run queue
-- `ergon worker start` claims queued runs and executes them
-- all state transitions are persisted for auditability and crash recovery
-
-This schema is inspired by patterns from job runners and workflow engines (e.g., lease-based claiming, event logs, attempt tracking), adapted for a single-node SQLite-first runtime.
-
----
-
-# 2. Design Goals
-
-The schema must support:
-
-- **Deterministic replay**: all significant transitions are recorded
-- **Crash recovery**: workers can resume runs after interruption
-- **Concurrency safety**: multiple workers can claim runs without duplication
-- **Attempt tracking**: retries are first-class, with per-attempt outputs
-- **Artifact traceability**: every artifact is attributable to a step run attempt
-- **Auditability**: event log acts as append-only source of truth
-
----
-
-# 3. Storage Layout
-
-Ergon Flow stores:
-
-1. **Run state** in SQLite (tables below)
-2. **Artifacts on disk** under:
-
-```
-.runs/<run_id>/
-  artifacts/
-  steps/<step_id>/<attempt>/
-```
-
-SQLite stores artifact metadata and file paths.
-
----
-
-# 4. Primary Entities
-
-Core entities:
-
-- `workflows` — catalog of workflow templates known to the system
-- `workflow_runs` — run queue + run state (Model B)
-- `step_runs` — execution record of each workflow step, per attempt
-- `artifacts` — metadata for stored artifacts
-- `events` — append-only event log
-
-Optional (recommended):
-
-- `workers` — worker heartbeats and identity
-- `locks` — advisory locks (rarely needed if lease mechanism is used correctly)
-
----
-
-# 5. Status Enums (Canonical)
-
-These values must match `SPEC.md`.
-
-## 5.1 workflow_runs.status
-
-- `queued` — waiting for worker
-- `running` — worker executing steps
-- `waiting_manual` — paused awaiting approval
-- `succeeded` — completed
-- `failed` — terminal failure
-- `canceled` — user canceled
-
-## 5.2 step_runs.status
-
-- `queued`
-- `running`
-- `succeeded`
-- `failed`
-- `skipped`
-- `waiting_manual`
-
----
-
-# 6. Time and IDs
-
-- `*_at` timestamps are stored as **ISO-8601 UTC strings**.
-- IDs are **text** (ULID or UUID recommended).
-- JSON columns are stored as `TEXT` containing JSON.
-
----
-
-# 7. Schema (DDL)
-
-## 7.1 Pragmas
-
-Recommended defaults:
+Storage opens SQLite with:
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -115,371 +22,277 @@ PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 ```
 
----
+## Filesystem Layout
 
-## 7.2 workflows
+SQLite stores run state and artifact metadata.
 
-Catalog of workflow templates available on this node.
+Artifact files live under:
 
-```sql
-CREATE TABLE IF NOT EXISTS workflows (
-  id            TEXT PRIMARY KEY,           -- e.g. "code.refactor"
-  version       INTEGER NOT NULL,            -- template version
-  description   TEXT,
-  source_path   TEXT NOT NULL,               -- path to YAML template file
-  hash          TEXT NOT NULL,               -- content hash for immutability
-  created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL,
-  UNIQUE(id, version)
-);
+```text
+.runs/<run_id>/
+  steps/<step_id>/<attempt>/
 ```
 
-Notes:
-- `hash` prevents silent template drift: once a run starts, it must reference an immutable template hash/version.
-
----
-
-## 7.3 workers (recommended)
-
-Tracks active workers and heartbeats for operational visibility.
+The current runtime writes concrete artifact files under
+`steps/<step_id>/<attempt>/` and stores relative file paths in `artifacts.path`.
 
-```sql
-CREATE TABLE IF NOT EXISTS workers (
-  id            TEXT PRIMARY KEY,            -- worker_id (stable across restarts if desired)
-  hostname      TEXT,
-  pid           INTEGER,
-  started_at    TEXT NOT NULL,
-  last_beat_at  TEXT NOT NULL,
-  meta_json     TEXT                          -- JSON: versions, capabilities
-);
-```
+## Tables
 
-Workers should update `last_beat_at` periodically.
+### `workflows`
 
----
+Purpose:
 
-## 7.4 workflow_runs (run queue + run state)
+- registered workflow catalog for the local node
 
-This table is the **run queue** for Model B.
+Primary key:
 
-```sql
-CREATE TABLE IF NOT EXISTS workflow_runs (
-  id                 TEXT PRIMARY KEY,       -- run_id
-  workflow_id         TEXT NOT NULL,          -- workflows.id
-  workflow_version    INTEGER NOT NULL,
-  workflow_hash       TEXT NOT NULL,          -- immutable template hash at scheduling time
+- `(id, version)`
 
-  status             TEXT NOT NULL,           -- queued|running|waiting_manual|succeeded|failed|canceled
+Important columns:
 
-  -- Scheduling / priority
-  priority           INTEGER NOT NULL DEFAULT 0,
-  scheduled_at       TEXT NOT NULL,           -- when inserted to queue
+- `id`
+- `version`
+- `description`
+- `source_path`
+- `hash`
+- `created_at`
+- `updated_at`
 
-  -- Worker claiming (lease mechanism)
-  claimed_by         TEXT,                    -- workers.id
-  lease_until        TEXT,                    -- UTC time; expired leases can be reclaimed
-  attempt            INTEGER NOT NULL DEFAULT 0, -- run-level attempt (rare; mostly for catastrophic restarts)
+Invariant:
 
-  -- Execution cursor (resume support)
-  current_step_id    TEXT,                    -- step id currently executing or next to execute
-  current_step_index INTEGER NOT NULL DEFAULT 0,
+- once `(id, version)` is registered, `hash` and `source_path` are immutable
 
-  -- Inputs / context
-  inputs_json        TEXT NOT NULL,           -- JSON of resolved inputs
-  context_json       TEXT,                    -- JSON: repo, branch, env, etc.
+### `workers`
 
-  -- Results / errors
-  result_json        TEXT,                    -- JSON: outputs summary
-  error_code         TEXT,                    -- stable error category
-  error_message      TEXT,                    -- short human message
-  error_detail_json  TEXT,                    -- JSON: stack, provider errors, etc.
+Purpose:
 
-  -- Timestamps
-  started_at         TEXT,
-  finished_at        TEXT,
-  created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL,
+- worker identity and heartbeat visibility
 
-  FOREIGN KEY (workflow_id) REFERENCES workflows(id)
-);
-```
+Important columns:
 
-### Invariants
-- When `status = queued`, `claimed_by` and `lease_until` SHOULD be NULL (or lease expired).
-- When `status = running`, `claimed_by` MUST be set and `lease_until` MUST be in the future.
-- `workflow_hash` and `workflow_version` MUST match an entry in `workflows`.
+- `id`
+- `hostname`
+- `pid`
+- `started_at`
+- `last_beat_at`
+- `meta_json`
 
----
+### `workflow_runs`
 
-## 7.5 step_runs (per-step execution records)
+Purpose:
 
-Tracks each step execution, including retries.
+- queue row + execution state for a workflow run
 
-```sql
-CREATE TABLE IF NOT EXISTS step_runs (
-  id                 TEXT PRIMARY KEY,       -- step_run_id
-  run_id             TEXT NOT NULL,           -- workflow_runs.id
-  step_id            TEXT NOT NULL,           -- template step id
-  step_kind          TEXT NOT NULL,           -- agent|exec|notify|manual|condition|artifact
-  status             TEXT NOT NULL,           -- queued|running|... (see SPEC)
-  attempt            INTEGER NOT NULL DEFAULT 1, -- 1..N
+Primary key:
 
-  -- Dependency/cursor helpers
-  depends_on_json    TEXT,                    -- JSON array of step ids (optional)
-  started_at         TEXT,
-  finished_at        TEXT,
+- `id`
 
-  -- Executor request/response (for audit and debugging)
-  request_json       TEXT,                    -- JSON: rendered prompt, command, provider config
-  response_json      TEXT,                    -- JSON: raw provider response or executor output
+Important columns:
 
-  -- Structured outputs (normalized)
-  output_json        TEXT,                    -- JSON: normalized output payload (schema-aligned)
-  error_code         TEXT,
-  error_message      TEXT,
-  error_detail_json  TEXT,
+- `workflow_id`
+- `workflow_version`
+- `workflow_hash`
+- `status`
+- `priority`
+- `scheduled_at`
+- `claimed_by`
+- `lease_until`
+- `claim_epoch`
+- `attempt`
+- `current_step_id`
+- `current_step_index`
+- `inputs_json`
+- `context_json`
+- `result_json`
+- `error_code`
+- `error_message`
+- `error_detail_json`
+- `started_at`
+- `finished_at`
+- `created_at`
+- `updated_at`
 
-  created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL,
+Foreign key:
 
-  FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  UNIQUE(run_id, step_id, attempt)
-);
-```
+- `(workflow_id, workflow_version) -> workflows(id, version)`
 
-Notes:
-- `attempt` is per-step, independent of run attempt.
-- `request_json` should contain enough data to reproduce the call, excluding secrets.
+Canonical statuses:
 
----
+- `queued`
+- `running`
+- `waiting_manual`
+- `succeeded`
+- `failed`
+- `canceled`
 
-## 7.6 artifacts (metadata + filesystem pointers)
+Critical invariants:
 
-Artifacts are stored on disk; SQLite stores metadata.
+- `workflow_hash` is the scheduled template identity for the run
+- `claim_epoch` starts at `0` and increments on each successful claim
+- only the current `(claimed_by, claim_epoch)` pair may finalize fenced run
+  mutations
+- `status = running` implies an active claim
 
-```sql
-CREATE TABLE IF NOT EXISTS artifacts (
-  id                 TEXT PRIMARY KEY,       -- artifact_id
-  run_id             TEXT NOT NULL,
-  step_run_id        TEXT NOT NULL,
+### `step_runs`
 
-  name               TEXT NOT NULL,           -- e.g. "patch", "plan", "analysis"
-  type               TEXT NOT NULL,           -- patch|plan|analysis|text|json|binary
-  mime               TEXT,                    -- optional MIME type
+Purpose:
 
-  path               TEXT NOT NULL,           -- filesystem path under .runs/<run_id>/
-  size_bytes         INTEGER,
-  sha256             TEXT,                    -- optional integrity hash
+- per-step, per-attempt execution history
 
-  meta_json          TEXT,                    -- JSON: schema version, tool info, etc.
+Primary key:
 
-  created_at         TEXT NOT NULL,
+- `id`
 
-  FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  FOREIGN KEY (step_run_id) REFERENCES step_runs(id) ON DELETE CASCADE
-);
-```
+Unique key:
 
-Recommendation:
-- store normalized outputs as JSON artifacts even when provider returned text, for later indexing.
+- `(run_id, step_id, attempt)`
 
----
+Important columns:
 
-## 7.7 events (append-only log)
+- `run_id`
+- `step_id`
+- `step_kind`
+- `status`
+- `attempt`
+- `depends_on_json`
+- `request_json`
+- `response_json`
+- `output_json`
+- `error_code`
+- `error_message`
+- `error_detail_json`
+- `started_at`
+- `finished_at`
+- `created_at`
+- `updated_at`
 
-Events are the **source of truth** for what happened during execution.
+Canonical statuses:
 
-```sql
-CREATE TABLE IF NOT EXISTS events (
-  id                 TEXT PRIMARY KEY,       -- event_id (ULID recommended for ordering)
-  run_id             TEXT NOT NULL,
-  step_run_id        TEXT,                    -- optional
+- `queued`
+- `running`
+- `succeeded`
+- `failed`
+- `skipped`
+- `waiting_manual`
 
-  type               TEXT NOT NULL,           -- workflow_started|step_started|...
-  ts                 TEXT NOT NULL,           -- UTC timestamp
+### `artifacts`
 
-  actor              TEXT NOT NULL,           -- "cli" | "worker:<id>" | "system"
-  seq                INTEGER NOT NULL,        -- monotonic per-run sequence number
+Purpose:
 
-  payload_json       TEXT,                    -- JSON: event details
-  created_at         TEXT NOT NULL,
+- artifact metadata and pointers to files on disk
 
-  FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  FOREIGN KEY (step_run_id) REFERENCES step_runs(id) ON DELETE SET NULL,
-  UNIQUE(run_id, seq)
-);
-```
+Important columns:
 
-Notes:
-- `seq` is per-run and must be allocated transactionally to guarantee ordering.
-- Prefer ULIDs for `events.id` so `ORDER BY id` approximates chronological order.
+- `id`
+- `run_id`
+- `step_run_id`
+- `name`
+- `type`
+- `mime`
+- `path`
+- `size_bytes`
+- `sha256`
+- `meta_json`
+- `created_at`
 
----
+Key semantic fields in `meta_json`:
 
-# 8. Indexes (Performance)
+- `step_id`
+- `attempt`
 
-SQLite needs explicit indexes for queue polling and run inspection.
+### `events`
 
-```sql
--- Queue polling
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_queue
-  ON workflow_runs(status, priority DESC, scheduled_at);
+Purpose:
 
--- Lease reclaim
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_lease
-  ON workflow_runs(status, lease_until);
+- append-only audit log for a run
 
--- Lookup by workflow
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow
-  ON workflow_runs(workflow_id, workflow_version);
+Primary key:
 
--- Artifacts by run
-CREATE INDEX IF NOT EXISTS idx_artifacts_run
-  ON artifacts(run_id, name);
+- `id`
 
--- Events by type (optional)
-CREATE INDEX IF NOT EXISTS idx_events_type
-  ON events(type, ts);
-```
+Unique key:
 
----
+- `(run_id, seq)`
 
-# 9. Critical Transactions
+Important columns:
 
-This section defines the **atomic operations** required for correctness.
+- `run_id`
+- `step_run_id`
+- `type`
+- `ts`
+- `actor`
+- `seq`
+- `payload_json`
+- `created_at`
 
-## 9.1 Scheduling a Run (CLI)
+Canonical event types:
 
-Scheduling must insert:
+- `lease_renewed`
+- `manual_approved`
+- `manual_rejected`
+- `manual_waiting`
+- `step_failed`
+- `step_retry`
+- `step_scheduled`
+- `step_skipped`
+- `step_started`
+- `step_succeeded`
+- `workflow_canceled`
+- `workflow_failed`
+- `workflow_scheduled`
+- `workflow_started`
+- `workflow_succeeded`
 
-1. workflow_runs row (status = queued)
-2. events row (workflow_scheduled)
+Invariant:
 
-In one transaction.
+- `seq` is monotonic per `run_id`
 
----
+## Indexes
 
-## 9.2 Claiming a Run (Worker)
+The current indexed paths are:
 
-Claiming must be atomic.
+- `workflow_runs(status, priority DESC, scheduled_at)`
+- `workflow_runs(status, lease_until)`
+- `workflow_runs(workflow_id, workflow_version)`
+- `artifacts(run_id, name)`
+- `events(type, ts)`
 
-Pseudo-transaction:
+## Transaction Rules
 
-```sql
-BEGIN;
+### Run scheduling
 
--- choose a candidate run
-SELECT id
-FROM workflow_runs
-WHERE status = 'queued'
-  AND (lease_until IS NULL OR lease_until < :now)
-ORDER BY priority DESC, scheduled_at ASC
-LIMIT 1;
+`createRun(...)` inserts the `workflow_runs` row and appends
+`workflow_scheduled` in the same transaction.
 
--- claim it
-UPDATE workflow_runs
-SET status = 'running',
-    claimed_by = :worker_id,
-    lease_until = :lease_until,
-    started_at = COALESCE(started_at, :now),
-    updated_at = :now
-WHERE id = :run_id
-  AND status = 'queued'
-  AND (lease_until IS NULL OR lease_until < :now);
+### Event allocation
 
--- verify update count == 1
+`appendEvent(...)` uses an `IMMEDIATE` transaction and allocates the next
+`seq` from the current maximum for that run.
 
-COMMIT;
-```
+### Claiming
 
-If update count != 1, another worker won; retry.
+`claimNextRun(...)` is atomic and may reclaim:
 
----
+- `queued` runs
+- `running` runs whose lease expired
 
-## 9.3 Lease Renewal (Worker Heartbeat)
+Successful claim increments `claim_epoch`.
 
-Workers should periodically extend lease while executing.
+### Fenced run completion
 
-```sql
-UPDATE workflow_runs
-SET lease_until = :lease_until,
-    updated_at = :now
-WHERE id = :run_id
-  AND claimed_by = :worker_id
-  AND status = 'running';
-```
+`markRunSucceeded`, `markRunFailed`, `markRunWaitingManual`, `markRunCanceled`
+and `updateRunCursor` require the current worker id and `claim_epoch`.
 
----
+## Recovery Rules
 
-## 9.4 Step Start / Finish (Engine)
+Recovery depends on persisted state only.
 
-Each step attempt should be recorded as:
+The worker reconstructs state from:
 
-- insert step_runs (queued)
-- event step_scheduled
-- update step_runs status running + event step_started
-- persist outputs + event step_succeeded/failed
-- update workflow_runs current_step cursor
+- `workflow_runs`
+- `step_runs`
+- successful artifacts on disk
+- the current workflow template identified by `workflow_hash`
 
-All of this should happen through transactions to keep state consistent.
-
----
-
-# 10. Resume Semantics
-
-Resume is enabled by:
-
-- `workflow_runs.current_step_index`
-- `workflow_runs.current_step_id`
-- existing `step_runs` rows
-
-On worker restart, the engine should:
-
-1. load run
-2. load steps from template
-3. find the first step not in `succeeded|skipped`
-4. continue from there
-
-If a step_run is `running` but lease expired, treat it as failed-attempt and retry according to template policy.
-
----
-
-# 11. Manual Steps
-
-When a manual step is encountered:
-
-- mark step_run status = `waiting_manual`
-- mark workflow_run status = `waiting_manual`
-- emit event(s)
-
-A separate CLI command (future) can approve:
-
-```
-ergon approve <run_id> <step_id> --decision approve|reject
-```
-
-Approvals should be stored as events with payload including actor identity.
-
----
-
-# 12. Cancellation
-
-Cancellation is modeled as:
-
-- set workflow_run status = `canceled`
-- emit event `workflow_canceled`
-
-Workers should check cancellation state between steps and before executing long-running operations.
-
----
-
-# 13. Open Questions (for later)
-
-- Should workflows/templates be persisted fully in DB, or only referenced by hash/path?
-- Should artifacts support content-addressed storage by default?
-- Should step_runs store a compacted/hashed request_json to reduce DB size?
-- Should we add a `run_tags` table for searching and grouping runs?
-
----
-
-# End of DB_SCHEMA
+If a workflow file changed after scheduling, the run is rejected instead of
+executing a drifted template.

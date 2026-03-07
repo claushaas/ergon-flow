@@ -632,7 +632,9 @@ export class ClientRegistry {
 		this.configs = options.configs ?? {};
 
 		for (const [provider, config] of Object.entries(this.configs)) {
-			validateProviderConfig(provider as Provider, config);
+			if (config) {
+				validateProviderConfig(provider as Provider, config);
+			}
 		}
 
 		for (const client of options.clients ?? []) {
@@ -642,10 +644,19 @@ export class ClientRegistry {
 
 	public get(provider: Provider): ExecutionClient {
 		const client = this.clients.get(provider);
-		if (!client) {
-			throw new Error(`No client registered for provider "${provider}"`);
+		if (client) {
+			return client;
 		}
-		return client;
+
+		const config = this.configs[provider];
+		const factory = CLIENT_FACTORIES[provider];
+		if (config && factory) {
+			const created = factory(config);
+			this.clients.set(provider, created);
+			return created;
+		}
+
+		throw new Error(`No client registered for provider "${provider}"`);
 	}
 
 	public has(provider: Provider): boolean {
@@ -658,7 +669,10 @@ export class ClientRegistry {
 				`Client already registered for provider "${client.provider}"`,
 			);
 		}
-		validateProviderConfig(client.provider, this.configs[client.provider]);
+		const config = this.configs[client.provider];
+		if (config) {
+			validateProviderConfig(client.provider, config);
+		}
 		this.clients.set(client.provider, client);
 	}
 }

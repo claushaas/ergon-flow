@@ -1,552 +1,200 @@
-# Ergon Flow — Architecture
+# Ergon Flow Architecture
 
-Version: 0.2
-Status: Draft
+Version: `0.3`
 
----
+## Purpose
 
-# 1. Purpose of This Document
+This document describes the concrete implementation boundaries of the current
+runtime.
 
-This document defines the **implementation architecture** of the Ergon Flow runtime.
+It is intentionally narrower than `SPEC.md`: it explains how the repository is
+actually structured today.
 
-It translates the conceptual model defined in `SPEC.md` into concrete software components and execution behavior.
+## Top-Level Shape
 
-This document describes:
-
-- runtime structure
-- worker execution model
-- system modules
-- data flow
-- integration boundaries
-- storage responsibilities
-
-This document focuses on **how the system is implemented**, not why it exists.
-
-Conceptual behavior is defined in:
-
-- `SPEC.md`
-- `TEMPLATE_SPEC.md`
-
----
-
-# 2. Architectural Model
-
-Ergon Flow uses a **Worker Runtime architecture (Model B)**.
-
-Workflow execution occurs through a **queue + worker system** rather than inline execution.
-
-Execution is separated into two phases:
-
-1. **Scheduling** (CLI)
-2. **Execution** (Workers)
-
-High‑level architecture:
-
-```
-User
- ↓
+```text
 CLI
- ↓
-Run Queue (DB)
- ↓
-Worker
- ↓
-Workflow Engine
- ↓
-Step Executors
- ↓
-Execution Clients
- ↓
-Artifacts + Storage
+  -> Storage (schedule / inspect / decisions)
+  -> Worker
+       -> Engine
+            -> Executors
+                 -> Clients / local process / filesystem staging
+            -> Storage (state transitions, events, artifact metadata)
 ```
 
-This architecture enables:
+## Repository Layers
 
-- asynchronous execution
-- crash recovery
-- parallel workers
-- deterministic execution tracking
-
----
-
-# 3. Runtime Components
-
-The system consists of the following runtime modules.
-
-| Component | Responsibility |
-|-----------|---------------|
-CLI | User interface for scheduling and inspecting runs |
-Run Queue | Persistent queue of pending workflow runs |
-Worker Runtime | Process that claims and executes runs |
-Workflow Engine | Coordinates step execution |
-Step Executors | Implement step behavior |
-Execution Clients | Integrate with models or agents |
-Storage | Persist runs, artifacts, and events |
-
-Each component has a strict responsibility boundary.
-
----
-
-# 4. CLI Layer
-
-The CLI is the primary entry point for users.
-
-Binary name:
-
-```
-ergon
-```
-
-Key commands:
-
-```
-ergon run <workflow>
-ergon run-status <run_id>
-ergon workflow list
-ergon template list
-ergon worker start
-```
-
-### CLI Responsibilities
-
-The CLI is responsible for:
-
-- loading workflow templates
-- validating template structure
-- creating workflow runs
-- inserting runs into the queue
-- inspecting run state
-
-Important design principle:
-
-```
-run = schedule execution
-worker = perform execution
-```
-
-The CLI **never executes workflow steps directly**.
-
----
-
-# 5. Run Queue
-
-The **Run Queue** stores pending workflow runs.
-
-It is implemented using the primary storage database (SQLite initially).
-
-Queue state is represented through the `workflow_runs` table.
-
-Example fields:
-
-```
-id
-workflow_id
-status
-claimed_by
-lease_until
-created_at
-updated_at
-```
-
-Run states include:
-
-```
-queued
-running
-waiting_manual
-succeeded
-failed
-canceled
-```
-
-Workers continuously poll the queue for runs in the `queued` state.
-
----
-
-# 6. Worker Runtime
-
-Workers are responsible for executing workflow runs.
-
-Workers are started via:
-
-```
-ergon worker start
-```
-
-A worker runs a continuous loop:
-
-```
-while true:
-  run = claim_next_run()
-  if run:
-    execute_run(run)
-  else:
-    sleep
-```
-
-Workers are stateless processes.
-
-All workflow state is stored in the database.
-
-This allows:
-
-- safe restarts
-- multiple workers
-- crash recovery
-
----
-
-# 7. Run Claiming (Lease Mechanism)
-
-To prevent multiple workers executing the same run, Ergon Flow uses a **lease‑based claiming mechanism**.
-
-Each run includes:
-
-```
-claimed_by
-lease_until
-```
-
-Claim procedure:
-
-1. worker selects a queued run
-2. worker atomically updates the run
-3. worker sets:
-
-```
-status = running
-claimed_by = worker_id
-lease_until = now + lease_duration
-```
-
-If a worker crashes, the lease eventually expires and another worker may reclaim the run.
-
-This ensures **fault tolerance without distributed locking systems**.
-
----
-
-# 8. Workflow Engine
-
-The Workflow Engine is responsible for executing the logic of a workflow run.
-
-Input:
-
-```
-run_id
-```
+### `packages/cli`
 
 Responsibilities:
 
-- load workflow template
-- resolve workflow inputs
-- determine next step
-- execute steps sequentially
-- persist artifacts
-- record events
+- parse CLI arguments
+- load local configuration from env
+- validate and schedule workflows
+- inspect runs
+- submit manual decisions
+- submit cancellation requests
 
-Conceptual execution loop:
+The CLI never executes a workflow step directly.
 
-```
-load run
-load workflow
+### `packages/engine`
 
-for each step:
-  create step_run
-  execute step
-  persist artifacts
-  record events
+Responsibilities:
 
-complete run
-```
+- run the worker loop
+- claim work from storage
+- load and validate workflow templates
+- coordinate sequential step execution
+- enforce claim fencing during state mutation
+- stage artifact files before metadata finalization
 
-The engine itself contains **no external integrations**.
+Built-in executors live here.
 
-All integrations occur through Step Executors.
+### `packages/storage`
 
----
+Responsibilities:
 
-# 9. Step Executors
+- open SQLite with pragmas and migrations
+- expose storage APIs for runs, steps, artifacts, events and workers
+- own transactional state mutation
 
-Step Executors implement the behavior of specific step types.
+The storage layer is the single source of truth for persisted run state.
 
-Supported step types:
+### `packages/clients`
 
-```
-agent
-exec
-notify
-manual
-condition
-artifact
-```
+Responsibilities:
 
-Each step type has a dedicated executor module.
+- adapt supported providers to the `ExecutionClient` interface
+- validate provider configuration
 
-| Step Type | Executor |
-|-----------|----------|
-agent | AgentExecutor |
-exec | ExecExecutor |
-notify | NotifyExecutor |
-manual | ManualExecutor |
-condition | ConditionExecutor |
-artifact | ArtifactExecutor |
+Clients do not persist state directly.
 
-Executors are responsible for:
+### `packages/shared`
 
-- validating step configuration
-- invoking execution clients
-- returning structured outputs
+Responsibilities:
 
-Executors **never write directly to the database**.
+- canonical enums
+- shared types
+- shared process-abort helpers
 
-The Workflow Engine persists all results.
+## Worker Model
 
----
+Workers are stateless processes. A worker loop:
 
-# 10. Execution Clients
+1. polls storage for a claimable run
+2. atomically claims one run
+3. executes that run
+4. renews the lease while work is in progress
+5. repeats until `maxRuns` or external stop
 
-Execution Clients provide adapters to external systems.
+All durable state lives in SQLite and the run filesystem.
 
-Interface concept:
+## Claim and Fencing Model
 
-```
-ExecutionClient.run(request) → response
-```
+Each claim is identified by:
 
-Execution clients normalize interaction with:
+- `claimed_by`
+- `lease_until`
+- `claim_epoch`
 
-- model providers
-- coding agents
-- external runtimes
+`claim_epoch` increments whenever a run is reclaimed.
 
----
+Critical run mutations are fenced against the current claim, so a stale worker
+cannot legally transition the run after another worker has taken ownership.
 
-# 11. Model Clients
+## Template Identity
 
-Model Clients interact with LLM providers.
+Runs store the scheduled `workflow_hash`.
 
-Supported examples:
+At execution time, the engine:
 
-- OpenRouter
-- Ollama
-- OpenAI
-- Anthropic
+1. loads the registered workflow row by `(workflow_id, workflow_version)`
+2. verifies that the registered hash still matches the run hash
+3. hashes the template file on disk
+4. rejects execution if the file changed after scheduling
 
-Example usage in workflows:
+This prevents silent template drift.
 
-```
-analysis → deepseek
-planning → kimi
-```
+## Execution Boundaries
 
-Each client handles:
+### Engine vs executors
 
-- request formatting
-- authentication
-- response normalization
+Executors are responsible for step-local behavior only:
 
----
+- render inputs
+- call local tools or clients
+- return outputs, artifacts and executor-local events
 
-# 12. Agent Clients
+Executors do not update `workflow_runs` or `step_runs` directly.
 
-Agent Clients integrate with external coding agents.
+The engine owns:
 
-Examples:
+- step scheduling
+- retries
+- skip semantics
+- manual pause handling
+- cancellation checks
+- final run resolution
 
-- Codex CLI
-- Claude Code
-- OpenClaw
+### Engine vs storage
 
-Agent Clients typically execute external processes.
+The engine stages artifact files on disk, but storage still owns durable
+metadata writes.
 
-Example interaction:
+The intended order is:
 
-```
-spawn process
-send prompt
-capture output
-return structured result
-```
+1. executor returns artifact values
+2. engine stages files under the attempt directory
+3. fenced transaction finalizes step state and inserts artifact metadata
 
----
+### Executors vs clients
 
-# 13. OpenClaw Integration
+`agent` delegates provider calls to `ExecutionClient`.
 
-OpenClaw may be used as an execution provider.
+`notify` performs stdout, webhook or OpenClaw delivery directly inside the
+executor because that step is an external side effect, not a model request.
 
-Integration occurs through the OpenClaw CLI.
+## Recovery Model
 
-Example invocation:
+Recovery is driven entirely from persisted state:
 
-```
-openclaw agent --agent coder --message "generate patch"
-```
+- `workflow_runs.current_step_id`
+- `workflow_runs.current_step_index`
+- `workflow_runs.attempt`
+- `step_runs`
+- `artifacts`
+- `events`
 
-The response is captured and converted into artifacts.
+When a lease expires during a running step, the next worker reconstructs the
+state from SQLite and successful artifacts on disk.
 
-This allows Ergon Flow to orchestrate OpenClaw agents without depending on the OpenClaw runtime architecture.
+## Manual and Cancel Paths
 
----
+`manual` steps park the run in `waiting_manual`.
 
-# 14. Artifact System
+The approval path is:
 
-Artifacts represent outputs produced during execution.
-
-Examples:
-
-- analysis
-- execution plans
-- patches
-- generated documentation
-
-Artifacts serve two roles:
-
-1. data passed between steps
-2. persistent audit records
-
-Artifacts are stored in:
-
-```
-.runs/<run_id>/artifacts/
+```text
+waiting_manual -> approve -> queued -> worker resumes remaining steps
 ```
 
-Each artifact is associated with a specific step run.
+The rejection path is:
 
----
-
-# 15. Storage Layer
-
-All execution state is stored in a database.
-
-Initial implementation uses **SQLite**.
-
-Core entities:
-
-```
-workflows
-workflow_runs
-steps
-step_runs
-artifacts
-events
+```text
+waiting_manual -> reject -> failed
 ```
 
-Events include:
+Cancellation is allowed from:
 
-- workflow_started
-- step_started
-- step_succeeded
-- step_failed
-- step_retry
+- `queued`
+- `running`
+- `waiting_manual`
 
-The storage layer enables:
+## Current Architectural Limits
 
-- debugging
-- replay
-- observability
+These limits are deliberate in `v0.0.1`:
 
----
-
-# 16. Execution Flow
-
-Complete system execution flow:
-
-```
-User
- ↓
-ergon run <workflow>
- ↓
-Insert workflow_run (queued)
- ↓
-Worker claims run
- ↓
-Workflow Engine executes steps
- ↓
-Step Executors invoke clients
- ↓
-Artifacts stored
- ↓
-Run completed
-```
-
-Every stage generates events recorded in storage.
-
----
-
-# 17. Fault Tolerance
-
-The worker architecture provides basic fault tolerance.
-
-Failure scenarios supported:
-
-- worker crash
-- system restart
-- partial execution
-
-Recovery is possible because:
-
-- run state is persisted
-- step runs are recorded
-- leases expire
-
-Workers can resume execution using stored run state.
-
----
-
-# 18. Monorepo Structure
-
-The repository is structured as a pnpm monorepo.
-
-Example structure:
-
-```
-/packages
-  cli
-  engine
-  clients
-  storage
-  shared
-
-/library
-  workflows
-
-/docs
-```
-
-This structure isolates responsibilities across modules.
-
----
-
-# 19. Implementation Language
-
-The initial implementation uses **TypeScript**.
-
-Reasons:
-
-- strong Node ecosystem
-- excellent CLI tooling
-- good type safety
-- compatibility with existing agent tooling
-
----
-
-# 20. Architectural Principles
-
-Ergon Flow architecture emphasizes:
-
-- deterministic execution
-- provider abstraction
-- explicit state
-- modular design
-
-The system transforms:
-
-```
-intent → workflow → run → steps → artifacts
-```
-
-into observable and reproducible execution.
-
----
-
-# End of ARCHITECTURE
+- execution is sequential, not parallel DAG scheduling
+- `library/agents` is not loaded by the runtime
+- `library/schemas` is not enforced at runtime
+- provider creation is limited to the supported adapter set in `packages/clients`
