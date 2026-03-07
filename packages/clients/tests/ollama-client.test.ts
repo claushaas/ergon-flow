@@ -1,4 +1,4 @@
-import type { ClientRequest } from '@ergon/shared';
+import type { ClientRequest } from '@claushaas/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OllamaModelClient } from '../src/index.js';
 

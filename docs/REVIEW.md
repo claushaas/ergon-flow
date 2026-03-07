@@ -10,7 +10,7 @@ A implementação **não está aderente ao roadmap atual** nem **alinhada à doc
 
 | Área | Requisito | Status | Evidência | Observação |
 |---|---|---|---|---|
-| Roadmap A1 | Packages e boundaries | DIVERGENTE | [defaults.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/defaults.ts#L1), [packages/executors/src/index.ts](/Volumes/dev/repos/ergon-flow/packages/executors/src/index.ts#L1), [engine/index.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/index.ts#L13) | `engine` embute executors, importa `clients/src` por path relativo e o package `@ergon/executors` está vazio. |
+| Roadmap A1 | Packages e boundaries | DIVERGENTE | [defaults.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/defaults.ts#L1), [packages/executors/src/index.ts](/Volumes/dev/repos/ergon-flow/packages/executors/src/index.ts#L1), [engine/index.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/index.ts#L13) | `engine` embute executors, importa `clients/src` por path relativo e o package `@claushaas/executors` está vazio. |
 | Roadmap A2 | Shared contracts | OK | [enums.ts](/Volumes/dev/repos/ergon-flow/packages/shared/src/enums.ts#L1) | Tipos, enums e error codes canônicos existem. |
 | Roadmap A3 | Layout `.runs/<run_id>/...` e path safety | PARCIAL | [paths.ts](/Volumes/dev/repos/ergon-flow/packages/storage/src/paths.ts#L1), [runner.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/runner.ts#L1184) | Helpers existem, mas o runner ignora `steps/<step_id>/<attempt>/` e grava tudo em `artifacts/`, quebrando rastreabilidade por tentativa. |
 | Roadmap B1 | SQLite bootstrap, pragmas, migrations | OK | [db.ts](/Volumes/dev/repos/ergon-flow/packages/storage/src/db.ts#L24), [0001_init.sql](/Volumes/dev/repos/ergon-flow/packages/storage/src/migrations/0001_init.sql), [0002_indexes.sql](/Volumes/dev/repos/ergon-flow/packages/storage/src/migrations/0002_indexes.sql) | Pragmas, migrations e índices básicos existem. |
@@ -75,7 +75,7 @@ A implementação **não está aderente ao roadmap atual** nem **alinhada à doc
   Evidência: [defaults.ts](/Volumes/dev/repos/ergon-flow/packages/engine/src/defaults.ts#L1) importa `../../clients/src/index.js`; smoke real: `node packages/cli/dist/main.js template list` falha com `ERR_MODULE_NOT_FOUND`; smoke real: `node packages/cli/src/main.ts template list` falha resolvendo `./commands/approve.js`.
   Fato: CI verde não garante que o produto compilado inicia.
   Violação: blocker operacional para qualquer release.
-  Correção recomendada: usar apenas imports de package (`@ergon/clients`), corrigir o entrypoint de desenvolvimento e adicionar smoke test do binário em CI.
+  Correção recomendada: usar apenas imports de package (`@claushaas/clients`), corrigir o entrypoint de desenvolvimento e adicionar smoke test do binário em CI.
 
 # 4. Problemas importantes não críticos
 
@@ -226,7 +226,7 @@ executável de verdade antes de mexer nas invariantes do runtime.
 
 ### Problemas cobertos por esta fase
 
-- O binário compilado `ergon` não sobe porque `@ergon/engine` importa
+- O binário compilado `ergon` não sobe porque `@claushaas/engine` importa
   `packages/clients/src` por caminho relativo em vez de depender do package
   publicado.
 - O entrypoint de desenvolvimento também não sobe como produto consumível.
@@ -246,7 +246,7 @@ executável de verdade antes de mexer nas invariantes do runtime.
 
 1. Corrigir todos os imports cruzando para `src`.
    Escolha um único contrato de package interno e aplique em todo o monorepo.
-   `@ergon/engine` deve importar `@ergon/clients`, não
+   `@claushaas/engine` deve importar `@claushaas/clients`, não
    `../../clients/src/index.js`. O mesmo vale para qualquer outro acoplamento
    por caminho físico que faça o build passar mas quebre o artefato em `dist`.
 

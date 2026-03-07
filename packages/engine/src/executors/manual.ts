@@ -1,4 +1,4 @@
-import type { ManualStepDefinition } from '@ergon/shared';
+import type { ManualStepDefinition } from '@claushaas/shared';
 import { renderStepRequestPayload } from '../templating/index.js';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 

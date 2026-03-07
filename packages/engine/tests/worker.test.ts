@@ -18,7 +18,7 @@ import {
 	registerWorkflow,
 	updateRunCursor,
 	updateStepRunStatus,
-} from '@ergon/storage';
+} from '@claushaas/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExecExecutor, ExecutorRegistry, startWorker } from '../src/index.js';
 

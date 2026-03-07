@@ -1,11 +1,11 @@
-# @ergon/shared
+# @claushaas/shared
 
 Shared types, enums, and contracts for Ergon Flow.
 
 Install:
 
 ```bash
-pnpm add @ergon/shared
+pnpm add @claushaas/shared
 ```
 
 Repository:

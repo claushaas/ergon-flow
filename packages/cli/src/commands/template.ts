@@ -2,7 +2,7 @@ import path from 'node:path';
 import {
 	loadAndValidateTemplateFromFile,
 	loadTemplatesFromDir,
-} from '@ergon/engine';
+} from '@claushaas/engine';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
 import { resolveEmbeddedTemplateDisplayPath } from '../utils.js';

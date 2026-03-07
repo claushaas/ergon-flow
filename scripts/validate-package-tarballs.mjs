@@ -10,17 +10,17 @@ const repoRoot = path.dirname(
 const packageSpecs = [
 	{
 		dir: 'packages/shared',
-		name: '@ergon/shared',
+		name: '@claushaas/shared',
 		requiredEntries: ['package/package.json', 'package/README.md'],
 	},
 	{
 		dir: 'packages/clients',
-		name: '@ergon/clients',
+		name: '@claushaas/clients',
 		requiredEntries: ['package/package.json', 'package/README.md'],
 	},
 	{
 		dir: 'packages/storage',
-		name: '@ergon/storage',
+		name: '@claushaas/storage',
 		requiredEntries: [
 			'package/package.json',
 			'package/README.md',
@@ -29,12 +29,12 @@ const packageSpecs = [
 	},
 	{
 		dir: 'packages/engine',
-		name: '@ergon/engine',
+		name: '@claushaas/engine',
 		requiredEntries: ['package/package.json', 'package/README.md'],
 	},
 	{
 		dir: 'packages/cli',
-		name: '@ergon/cli',
+		name: '@claushaas/cli',
 		requiredEntries: [
 			'package/package.json',
 			'package/README.md',

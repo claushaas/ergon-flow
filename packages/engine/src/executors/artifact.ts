@@ -1,4 +1,4 @@
-import type { ArtifactStepDefinition } from '@ergon/shared';
+import type { ArtifactStepDefinition } from '@claushaas/shared';
 import type { ExecutionContext, Executor, ExecutorResult } from './index.js';
 
 const RESERVED_ARTIFACT_KEYS = new Set([

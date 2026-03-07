@@ -1,11 +1,11 @@
-# @ergon/engine
+# @claushaas/engine
 
 Workflow engine and worker runtime for Ergon Flow.
 
 Install:
 
 ```bash
-pnpm add @ergon/engine
+pnpm add @claushaas/engine
 ```
 
 Repository:

@@ -73,7 +73,7 @@ Supported public runtime:
 Install the CLI globally:
 
 ```bash
-pnpm add -g @ergon/cli
+pnpm add -g @claushaas/cli
 ```
 
 Bootstrap a project-local Ergon workspace:
@@ -230,8 +230,8 @@ pnpm smoke:global-install
 ```
 
 The publish workflow validates the tag version, verifies the tarballs, and then
-publishes `@ergon/shared`, `@ergon/clients`, `@ergon/storage`,
-`@ergon/engine`, and `@ergon/cli` in dependency order.
+publishes `@claushaas/shared`, `@claushaas/clients`, `@claushaas/storage`,
+`@claushaas/engine`, and `@claushaas/cli` in dependency order.
 
 ## Release Readiness
 

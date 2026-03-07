@@ -1,11 +1,11 @@
-# @ergon/storage
+# @claushaas/storage
 
 SQLite storage layer for Ergon Flow workflow state.
 
 Install:
 
 ```bash
-pnpm add @ergon/storage
+pnpm add @claushaas/storage
 ```
 
 Repository:

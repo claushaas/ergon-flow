@@ -1,4 +1,4 @@
-import type { ArtifactStepDefinition } from '@ergon/shared';
+import type { ArtifactStepDefinition } from '@claushaas/shared';
 import { describe, expect, it } from 'vitest';
 import { ArtifactExecutor } from '../src/executors/artifact.js';
 import { createExecutionContext } from '../src/executors/index.js';

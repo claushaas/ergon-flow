@@ -4,11 +4,11 @@
 
 All public packages are released together at the same version:
 
-- `@ergon/shared`
-- `@ergon/clients`
-- `@ergon/storage`
-- `@ergon/engine`
-- `@ergon/cli`
+- `@claushaas/shared`
+- `@claushaas/clients`
+- `@claushaas/storage`
+- `@claushaas/engine`
+- `@claushaas/cli`
 
 Before tagging a release:
 

@@ -57,17 +57,17 @@ jobs:
           pnpm smoke:cli
           pnpm smoke:global-install
 
-      - name: Publish @ergon/shared
-        run: pnpm --filter @ergon/shared publish --access public --no-git-checks
+      - name: Publish @claushaas/shared
+        run: pnpm --filter @claushaas/shared publish --access public --no-git-checks
 
-      - name: Publish @ergon/clients
-        run: pnpm --filter @ergon/clients publish --access public --no-git-checks
+      - name: Publish @claushaas/clients
+        run: pnpm --filter @claushaas/clients publish --access public --no-git-checks
 
-      - name: Publish @ergon/storage
-        run: pnpm --filter @ergon/storage publish --access public --no-git-checks
+      - name: Publish @claushaas/storage
+        run: pnpm --filter @claushaas/storage publish --access public --no-git-checks
 
-      - name: Publish @ergon/engine
-        run: pnpm --filter @ergon/engine publish --access public --no-git-checks
+      - name: Publish @claushaas/engine
+        run: pnpm --filter @claushaas/engine publish --access public --no-git-checks
 
-      - name: Publish @ergon/cli
-        run: pnpm --filter @ergon/cli publish --access public --no-git-checks
+      - name: Publish @claushaas/cli
+        run: pnpm --filter @claushaas/cli publish --access public --no-git-checks

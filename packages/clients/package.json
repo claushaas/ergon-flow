@@ -3,7 +3,7 @@
 		"url": "https://github.com/claushaas/ergon-flow/issues"
 	},
 	"dependencies": {
-		"@ergon/shared": "workspace:*"
+		"@claushaas/shared": "workspace:*"
 	},
 	"description": "Provider adapters for Ergon Flow execution clients",
 	"engines": {
@@ -22,7 +22,7 @@
 	],
 	"license": "MIT",
 	"main": "dist/index.js",
-	"name": "@ergon/clients",
+	"name": "@claushaas/clients",
 	"publishConfig": {
 		"access": "public"
 	},

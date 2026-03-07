@@ -1,7 +1,7 @@
 import {
 	openStorageDb,
 	decideManualStep as persistManualDecision,
-} from '@ergon/storage';
+} from '@claushaas/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
 import { assertInitializedProject } from '../project.js';
