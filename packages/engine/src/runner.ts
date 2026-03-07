@@ -13,8 +13,8 @@ import type {
 	StepDefinition,
 	StepRunStatus,
 	WorkflowTemplate,
-} from '@ergon/shared';
-import { ERROR_CODES } from '@ergon/shared';
+} from '@claushaas/shared';
+import { ERROR_CODES } from '@claushaas/shared';
 import {
 	appendEvent,
 	appendEventInTransaction,
@@ -38,7 +38,7 @@ import {
 	updateRunCursor,
 	updateStepRunStatus,
 	withRunClaim,
-} from '@ergon/storage';
+} from '@claushaas/storage';
 import type {
 	Executor,
 	ExecutorArtifact,

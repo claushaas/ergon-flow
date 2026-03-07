@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { createDefaultExecutorRegistry, startWorker } from '@ergon/engine';
-import { openStorageDb } from '@ergon/storage';
+import { createDefaultExecutorRegistry, startWorker } from '@claushaas/engine';
+import { openStorageDb } from '@claushaas/storage';
 import { loadCliConfig } from '../config/index.js';
 import { assertInitializedProject } from '../project.js';
 

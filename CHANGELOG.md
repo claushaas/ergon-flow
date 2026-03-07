@@ -8,7 +8,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- Global CLI installation via `pnpm add -g @ergon/cli`
+- Global CLI installation via `pnpm add -g @claushaas/cli`
 - Explicit project bootstrap with `ergon init`
 - Project-local `.ergon/library` resolution and `ergon library sync`
 - Release tarball validation and global-install smoke checks

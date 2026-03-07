@@ -3,7 +3,7 @@ import path from 'node:path';
 import {
 	loadAndValidateTemplateFromFile,
 	resolveWorkflowInputs,
-} from '@ergon/engine';
+} from '@claushaas/engine';
 import {
 	createRun,
 	getRun,
@@ -11,7 +11,7 @@ import {
 	listStepRuns,
 	openStorageDb,
 	registerWorkflow,
-} from '@ergon/storage';
+} from '@claushaas/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
 import { assertInitializedProject } from '../project.js';

@@ -6,7 +6,7 @@ import {
 	createChildProcessAbortController,
 	type ExecutionClient,
 	type Provider,
-} from '@ergon/shared';
+} from '@claushaas/shared';
 
 export interface SharedProviderConfig {
 	baseUrl?: string;

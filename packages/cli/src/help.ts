@@ -4,7 +4,7 @@ export function getCliHelpText(): string {
 	return `Ergon Flow CLI
 
 Install:
-  pnpm add -g @ergon/cli
+  pnpm add -g @claushaas/cli
 
 Usage:
   ergon init [--root <path>]

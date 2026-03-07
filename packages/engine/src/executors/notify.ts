@@ -1,10 +1,10 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import type { CliClientOptions, CliSpawn } from '@ergon/clients';
+import type { CliClientOptions, CliSpawn } from '@claushaas/clients';
 import {
 	createChildProcessAbortController,
 	type NotifyStepDefinition,
-} from '@ergon/shared';
+} from '@claushaas/shared';
 import {
 	interpolateTemplateString,
 	renderStepRequestPayload,

@@ -20,7 +20,7 @@ import {
 	registerWorkflow,
 	updateRunCursor,
 	updateStepRunStatus,
-} from '@ergon/storage';
+} from '@claushaas/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decideManualStep } from '../src/commands/approve.js';
 import { cancelWorkflowRun } from '../src/commands/cancel.js';

@@ -1,4 +1,4 @@
-import type { NotifyStepDefinition } from '@ergon/shared';
+import type { NotifyStepDefinition } from '@claushaas/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createExecutionContext } from '../src/executors/index.js';
 import { NotifyExecutor } from '../src/executors/notify.js';

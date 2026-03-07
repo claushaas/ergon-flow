@@ -8,7 +8,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { ClientRequest, ExecutionClient, Provider } from '@ergon/shared';
+import type {
+	ClientRequest,
+	ExecutionClient,
+	Provider,
+} from '@claushaas/shared';
 import {
 	claimNextRun,
 	createRun,
@@ -16,7 +20,7 @@ import {
 	listStepRuns,
 	openStorageDb,
 	registerWorkflow,
-} from '@ergon/storage';
+} from '@claushaas/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentExecutor, ExecutorRegistry, executeRun } from '../src/index.js';
 

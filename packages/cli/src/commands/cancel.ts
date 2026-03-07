@@ -1,4 +1,4 @@
-import { cancelRun, openStorageDb } from '@ergon/storage';
+import { cancelRun, openStorageDb } from '@claushaas/storage';
 import { loadCliConfig } from '../config/index.js';
 import { printJson } from '../output/format.js';
 import { assertInitializedProject } from '../project.js';

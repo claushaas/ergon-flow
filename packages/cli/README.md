@@ -1,11 +1,11 @@
-# @ergon/cli
+# @claushaas/cli
 
 Globally installable CLI for Ergon Flow.
 
 Install:
 
 ```bash
-pnpm add -g @ergon/cli
+pnpm add -g @claushaas/cli
 ```
 
 Quickstart:

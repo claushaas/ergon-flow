@@ -85,11 +85,11 @@ try {
 		packWorkspacePackage(packageDir, packDir),
 	);
 	const tarballByPackageName = new Map([
-		['@ergon/shared', tarballs[0]],
-		['@ergon/clients', tarballs[1]],
-		['@ergon/storage', tarballs[2]],
-		['@ergon/engine', tarballs[3]],
-		['@ergon/cli', tarballs[4]],
+		['@claushaas/shared', tarballs[0]],
+		['@claushaas/clients', tarballs[1]],
+		['@claushaas/storage', tarballs[2]],
+		['@claushaas/engine', tarballs[3]],
+		['@claushaas/cli', tarballs[4]],
 	]);
 	const installEnv = {
 		...process.env,
@@ -129,7 +129,7 @@ try {
 		env: installEnv,
 	});
 	run('pnpm', ['link', '--global'], {
-		cwd: path.join(installRoot, 'node_modules', '@ergon', 'cli'),
+		cwd: path.join(installRoot, 'node_modules', '@claushaas', 'cli'),
 		env: installEnv,
 	});
 
@@ -139,7 +139,7 @@ try {
 	}
 
 	const helpText = runErgon(['--help'], projectRoot, installEnv);
-	if (!helpText.includes('ergon init') || !helpText.includes('pnpm add -g @ergon/cli')) {
+	if (!helpText.includes('ergon init') || !helpText.includes('pnpm add -g @claushaas/cli')) {
 		fail(`Unexpected ergon --help output: ${helpText}`);
 	}
 

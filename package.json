@@ -18,8 +18,8 @@
 	},
 	"scripts": {
 		"biome": "biome check --unsafe --write",
-		"build": "tsc --build && pnpm --filter @ergon/storage run build:assets && pnpm --filter @ergon/cli run build:assets",
-		"dev": "pnpm --filter @ergon/cli build && node packages/cli/dist/main.js",
+		"build": "tsc --build && pnpm --filter @claushaas/storage run build:assets && pnpm --filter @claushaas/cli run build:assets",
+		"dev": "pnpm --filter @claushaas/cli build && node packages/cli/dist/main.js",
 		"pack:validate": "node scripts/validate-package-tarballs.mjs",
 		"release:version-check": "node scripts/validate-release-version.mjs",
 		"smoke:cli": "node scripts/smoke-cli-run-worker.mjs",

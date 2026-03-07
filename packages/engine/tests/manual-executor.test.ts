@@ -1,4 +1,4 @@
-import type { ManualStepDefinition } from '@ergon/shared';
+import type { ManualStepDefinition } from '@claushaas/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createExecutionContext } from '../src/executors/index.js';
 import { ManualExecutor } from '../src/executors/manual.js';
