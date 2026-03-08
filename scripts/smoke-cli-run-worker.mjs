@@ -76,7 +76,7 @@ outputs:
 	]);
 
 	const status = JSON.parse(
-		runCli(cliPath, tempRoot, ['run-status', scheduledRun.id]),
+		runCli(cliPath, tempRoot, ['run', 'status', scheduledRun.id]),
 	);
 	if (status.run.status !== 'succeeded') {
 		fail(`Expected succeeded run, received ${JSON.stringify(status)}`);

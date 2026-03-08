@@ -132,7 +132,7 @@ export function getRunStatus(
 	stepRuns: ReturnType<typeof listStepRuns>;
 } {
 	const config = loadCliConfig(commandOptions.rootDir);
-	assertInitializedProject(config, 'run-status');
+	assertInitializedProject(config, 'run status');
 	const db = openStorageDb({
 		dbPath: commandOptions.dbPath ?? config.dbPath,
 	});

@@ -192,7 +192,7 @@ outputs:
 		installEnv,
 	);
 
-	const status = JSON.parse(runErgon(['run-status', scheduledRun.id], projectRoot, installEnv));
+	const status = JSON.parse(runErgon(['run', 'status', scheduledRun.id], projectRoot, installEnv));
 	if (status.run.status !== 'succeeded') {
 		fail(`Expected succeeded run, received ${JSON.stringify(status)}`);
 	}
