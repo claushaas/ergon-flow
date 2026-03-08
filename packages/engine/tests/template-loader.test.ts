@@ -111,8 +111,33 @@ describe('template loader (C1)', () => {
 		});
 
 		expect(template.inputs).toEqual({});
+		expect(template.on_failure).toBeUndefined();
 		expect(template.outputs).toEqual({});
 		expect(template.steps).toEqual([]);
+	});
+
+	it('normalizes on_failure notify steps', () => {
+		const template = normalizeTemplate({
+			on_failure: [
+				{
+					channel: 'stdout',
+					id: 'notify.failure',
+					kind: 'notify',
+					message: 'failed: {{ artifacts.failure.message }}',
+				},
+			],
+			steps: [{ command: 'echo ok', id: 'run', kind: 'exec' }],
+			workflow: { id: 'workflow.failure-hook', version: 1 },
+		});
+
+		expect(template.on_failure).toEqual([
+			{
+				channel: 'stdout',
+				id: 'notify.failure',
+				kind: 'notify',
+				message: 'failed: {{ artifacts.failure.message }}',
+			},
+		]);
 	});
 
 	it('filters malformed steps without id/kind string', () => {
@@ -179,6 +204,27 @@ describe('template validation (C2)', () => {
 			result.errors.some((error) =>
 				error.message.includes('duplicate step id "dup.step"'),
 			),
+		).toBe(true);
+	});
+
+	it('rejects duplicate ids across steps and on_failure', () => {
+		const template = normalizeTemplate({
+			on_failure: [
+				{
+					channel: 'stdout',
+					id: 'dup.step',
+					kind: 'notify',
+					message: 'failed',
+				},
+			],
+			steps: [{ command: 'echo one', id: 'dup.step', kind: 'exec' }],
+			workflow: { id: 'workflow.dup.failure-hook', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.some((error) => error.path === 'on_failure[0].id'),
 		).toBe(true);
 	});
 

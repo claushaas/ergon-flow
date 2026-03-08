@@ -18,6 +18,7 @@ const CONFIG_FORMAT_VERSION = 1;
 
 export interface ProjectLibraryMetadata {
 	cli_version: string;
+	env_file?: string;
 	format_version: number;
 	initialized_at: string;
 	library_files: Record<string, string>;
@@ -185,6 +186,10 @@ function readProjectLibraryMetadata(
 
 	return {
 		cli_version: parsed.cli_version,
+		env_file:
+			typeof parsed.env_file === 'string' && parsed.env_file.trim().length > 0
+				? parsed.env_file
+				: undefined,
 		format_version: parsed.format_version,
 		initialized_at: parsed.initialized_at,
 		library_files: Object.fromEntries(
@@ -212,6 +217,7 @@ function buildLibraryMetadata(libraryDir: string): ProjectLibraryMetadata {
 	const cliVersion = getCliVersion();
 	return {
 		cli_version: cliVersion,
+		env_file: '.env',
 		format_version: CONFIG_FORMAT_VERSION,
 		initialized_at: new Date().toISOString(),
 		library_files: Object.fromEntries(
@@ -359,6 +365,7 @@ export function syncProjectLibrary(
 
 	writeProjectLibraryMetadata(project.configPath, {
 		cli_version: getCliVersion(),
+		env_file: previousMetadata.env_file,
 		format_version: previousMetadata.format_version,
 		initialized_at: previousMetadata.initialized_at,
 		library_files: nextManagedFiles,

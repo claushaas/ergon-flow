@@ -12,7 +12,8 @@ Usage:
   ergon template list
   ergon workflow list
   ergon run <workflow_id> [--inputs <json-or-path>]
-  ergon run-status <run_id>
+  ergon run list [--status <status>] [--workflow <workflow_id>] [--limit <n>] [--offset <n>]
+  ergon run status <run_id>
   ergon worker start [runtime flags]
   ergon approve <run_id> <step_id> --decision approve|reject
   ergon cancel <run_id>

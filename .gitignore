@@ -1,7 +1,9 @@
 # Dependencies
 node_modules/
 
-.codex/
+# Ergon
+.ergon
+.runs
 
 # Build outputs
 dist/
