@@ -261,6 +261,18 @@ Current commands and common examples:
     ergon run code.hotfix --inputs ./inputs/hotfix.json
     ```
 
+  - Reuse the same workflow repeatedly with different inputs for each run. For
+    example, one standard implementation workflow can stay fixed while each run
+    changes the branch name, task description, or feature prompt:
+
+    ```bash
+    ergon run code.feature_delivery --inputs ./inputs/feature-search.json
+    ergon run code.feature_delivery --inputs ./inputs/feature-billing.json
+    ```
+
+    This lets you keep one reusable workflow template while scheduling
+    different runs for different implementation tasks.
+
 - `ergon run list [--status <status>] [--workflow <workflow_id>] [--limit <n>] [--offset <n>]`
   - List recent runs:
 
