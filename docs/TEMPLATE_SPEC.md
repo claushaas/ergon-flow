@@ -329,5 +329,5 @@ These are deliberate in `v0.1.4`:
 
 - no `steps.*` interpolation
 - no parallel DAG scheduling
-- no runtime loading of `library/agents`
-- no runtime schema validation against `library/schemas`
+- no runtime loading of `docs/ideas/agents`
+- no runtime schema validation against `docs/ideas/schemas`

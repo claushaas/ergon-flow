@@ -294,6 +294,6 @@ Do not document or use these as if they already exist.
 
 - no `steps.*` interpolation
 - no parallel DAG execution
-- no runtime loading of `library/agents`
-- no runtime schema validation against `library/schemas`
+- no runtime loading of `docs/ideas/agents`
+- no runtime schema validation against `docs/ideas/schemas`
 - no step kinds like `files.write`, `schema.validate`, or `repo.search`

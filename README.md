@@ -56,11 +56,12 @@ Supported providers:
 
 These repository assets exist, but they are not enforced by the runtime yet:
 
-- `library/agents/`
-- `library/schemas/`
+- `docs/ideas/agents/`
+- `docs/ideas/schemas/`
 
-The current runtime does not load agent profiles from `library/agents` and does
-not validate agent artifacts against `library/schemas` during execution.
+The current runtime does not load agent profiles from `docs/ideas/agents` and
+does not validate agent artifacts against `docs/ideas/schemas` during
+execution.
 
 The current engine is also intentionally limited to sequential execution. It is
 not a parallel DAG scheduler.

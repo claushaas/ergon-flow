@@ -234,6 +234,6 @@ Bootstrap and root-discovery rules:
 These are out of scope in the current release:
 
 - parallel DAG execution
-- runtime loading of `library/agents`
-- runtime schema validation using `library/schemas`
+- runtime loading of `docs/ideas/agents`
+- runtime schema validation using `docs/ideas/schemas`
 - hidden in-memory workflow state

@@ -28,6 +28,6 @@ Add a native step:
 
 ## Notes
 
-- load schemas from `library/schemas`
+- load schemas from `docs/ideas/schemas`
 - fail the workflow when validation fails
 - persist validation errors in structured form

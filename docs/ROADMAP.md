@@ -88,13 +88,13 @@ Done:
 The following items are intentionally out of scope for this release:
 
 - parallel DAG execution
-- loading agent profiles from `library/agents`
-- validating runtime artifacts against `library/schemas`
+- loading agent profiles from `docs/ideas/agents`
+- validating runtime artifacts against `docs/ideas/schemas`
 - OpenAI and Anthropic provider adapters
 - richer operator tooling beyond the current CLI
 
 ## Notes for Users
 
-The repository contains `library/agents` and `library/schemas`, but these are
+The repository contains `docs/ideas/agents` and `docs/ideas/schemas`, but these are
 currently repository assets rather than enforced runtime inputs. That is a
 deliberate limitation of `v0.1.4`, not a hidden incomplete implementation.

@@ -131,8 +131,8 @@ The current runtime supports these providers:
 Not part of the current runtime contract:
 
 - parallel DAG scheduling
-- runtime loading of `library/agents`
-- runtime validation against `library/schemas`
+- runtime loading of `docs/ideas/agents`
+- runtime validation against `docs/ideas/schemas`
 - OpenAI or Anthropic provider adapters
 
 ## Current Limitations You Must Respect
@@ -140,8 +140,8 @@ Not part of the current runtime contract:
 These points are explicit in the current docs and implementation.
 
 - Execution is sequential.
-- `library/agents` exists in the repo but is not loaded by the runtime today.
-- `library/schemas` exists in the repo but is not enforced by the runtime today.
+- `docs/ideas/agents` exists in the repo but is not loaded by the runtime today.
+- `docs/ideas/schemas` exists in the repo but is not enforced by the runtime today.
 - `on_failure` exists, but only `notify` steps are supported there.
 
 ## End-To-End Narrative
