@@ -169,19 +169,162 @@ Provider prerequisites:
 
 ## CLI Surface
 
-Current commands:
+Current commands and common examples:
 
 - `ergon init [--root <path>]`
+  - Initialize Ergon Flow in the current repository:
+
+    ```bash
+    ergon init
+    ```
+
+  - Initialize a different repository path:
+
+    ```bash
+    ergon init --root /path/to/repo
+    ```
+
 - `ergon library sync [--force] [--root <path>]`
+  - Refresh the project-local embedded library:
+
+    ```bash
+    ergon library sync
+    ```
+
+  - Force overwrite local library files with the embedded version:
+
+    ```bash
+    ergon library sync --force
+    ```
+
+  - Sync a different initialized repository:
+
+    ```bash
+    ergon library sync --root /path/to/repo
+    ```
+
 - `ergon skill install [skill_id] [--path <dir>] [--root <path>]`
+  - Install the only repo-distributed skill into `./skills/`:
+
+    ```bash
+    ergon skill install
+    ```
+
+  - Install a specific skill by id:
+
+    ```bash
+    ergon skill install ergon-flow-expert
+    ```
+
+  - Install into a custom target directory:
+
+    ```bash
+    ergon skill install ergon-flow-expert --path ./.codex/skills
+    ```
+
+  - Install a skill from another repository root:
+
+    ```bash
+    ergon skill install ergon-flow-expert --root /path/to/repo
+    ```
+
 - `ergon template list`
+  - List embedded templates before or after project initialization:
+
+    ```bash
+    ergon template list
+    ```
+
 - `ergon workflow list`
+  - List workflows registered in the current project:
+
+    ```bash
+    ergon workflow list
+    ```
+
 - `ergon run <workflow_id> [--inputs <json-or-path>]`
+  - Schedule a workflow with default inputs:
+
+    ```bash
+    ergon run code.bump_deps
+    ```
+
+  - Schedule a workflow with inline JSON inputs:
+
+    ```bash
+    ergon run agent.smoke --inputs '{"output_file":".ergon/tmp/result.txt"}'
+    ```
+
+  - Schedule a workflow with inputs loaded from a file:
+
+    ```bash
+    ergon run code.hotfix --inputs ./inputs/hotfix.json
+    ```
+
 - `ergon run list [--status <status>] [--workflow <workflow_id>] [--limit <n>] [--offset <n>]`
+  - List recent runs:
+
+    ```bash
+    ergon run list
+    ```
+
+  - Show only runs currently executing:
+
+    ```bash
+    ergon run list --status running
+    ```
+
+  - Show only runs for one workflow:
+
+    ```bash
+    ergon run list --workflow agent.smoke
+    ```
+
+  - Paginate through older runs:
+
+    ```bash
+    ergon run list --limit 20 --offset 20
+    ```
+
 - `ergon run status <run_id>`
+  - Inspect one run and all of its persisted step runs:
+
+    ```bash
+    ergon run status 899733a6-340b-4a21-9d48-6a03b7a60675
+    ```
+
 - `ergon worker start [runtime flags]`
+  - Start a worker that keeps polling for queued runs until you stop it:
+
+    ```bash
+    ergon worker start
+    ```
+
+  - Process a single run and exit:
+
+    ```bash
+    ergon worker start --max-runs 1
+    ```
+
 - `ergon approve <run_id> <step_id> --decision approve|reject`
+  - Approve a manual gate and requeue the run:
+
+    ```bash
+    ergon approve efe9cc3e-1759-4020-9307-5cc388cf3566 approve --decision approve
+    ```
+
+  - Reject a manual gate:
+
+    ```bash
+    ergon approve efe9cc3e-1759-4020-9307-5cc388cf3566 approve --decision reject
+    ```
+
 - `ergon cancel <run_id>`
+  - Cancel a queued, running, or waiting-manual run:
+
+    ```bash
+    ergon cancel 899733a6-340b-4a21-9d48-6a03b7a60675
+    ```
 
 Stateful commands (`workflow list`, `run`, `run status`, `worker start`,
 `approve`, `cancel`) require an initialized project. `template list` can run
