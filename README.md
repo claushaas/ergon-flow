@@ -319,6 +319,10 @@ Current commands and common examples:
     ergon approve efe9cc3e-1759-4020-9307-5cc388cf3566 approve --decision reject
     ```
 
+  - Approval resumes the workflow from the next step. Rejection ends the
+    workflow immediately with status `failed`, even if more steps are defined
+    after the manual gate.
+
 - `ergon cancel <run_id>`
   - Cancel a queued, running, or waiting-manual run:
 
