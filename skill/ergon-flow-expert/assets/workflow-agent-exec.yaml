@@ -1,0 +1,75 @@
+workflow:
+  id: example.agent_exec
+  version: 1
+  description: "Ask an agent for content, write it with exec, and notify completion."
+  author: "ergon-flow-expert"
+  tags: ["example", "agent", "exec", "notify"]
+
+inputs:
+  output_file:
+    type: string
+    description: "Path to the output file."
+    default: ".ergon/tmp/example-agent-exec/note.txt"
+
+  topic:
+    type: string
+    description: "Topic to summarize."
+    default: "the purpose of Ergon Flow"
+
+  notify:
+    type: object
+    description: "Notification settings."
+    default:
+      channel: "stdout"
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+on_failure:
+  - id: notify.failure
+    kind: notify
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow failed: example.agent_exec
+
+      Step: {{ artifacts.failure.step_id }}
+      Error: {{ artifacts.failure.message }}
+
+steps:
+  - id: draft
+    kind: agent
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    output:
+      name: note
+      type: text
+    prompt: |
+      Write a short note in plain English about {{ inputs.topic }}.
+      Keep it between 3 and 5 sentences.
+      Return plain text only.
+
+  - id: write
+    kind: exec
+    env:
+      NOTE_CONTENT: "{{ artifacts.note }}"
+      OUTPUT_FILE: "{{ inputs.output_file }}"
+    command: |
+      set -euo pipefail
+      mkdir -p "$(dirname "$OUTPUT_FILE")"
+      printf '%s\n' "$NOTE_CONTENT" > "$OUTPUT_FILE"
+      printf 'wrote %s\n' "$OUTPUT_FILE"
+
+  - id: notify.complete
+    kind: notify
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: example.agent_exec
+
+      Output file:
+      {{ inputs.output_file }}
+
+outputs:
+  note: artifacts.note
+  output_file: inputs.output_file
+  write_result: artifacts.write.result

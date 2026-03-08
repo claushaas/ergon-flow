@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ergon Flow Expert"
+  short_description: "Use the Ergon CLI and author valid workflows"
+  default_prompt: "Use $ergon-flow-expert to help me create, review, validate, or run Ergon Flow workflows in this repository."

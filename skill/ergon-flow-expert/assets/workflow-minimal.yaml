@@ -1,0 +1,17 @@
+workflow:
+  id: example.minimal
+  version: 1
+  description: "Smallest runnable workflow using one exec step."
+  author: "ergon-flow-expert"
+  tags: ["example", "minimal", "exec"]
+
+steps:
+  - id: hello
+    kind: exec
+    command: |
+      set -euo pipefail
+      printf 'hello from ergon\n'
+
+outputs:
+  result: artifacts.hello.result
+  stdout: artifacts.hello.stdout

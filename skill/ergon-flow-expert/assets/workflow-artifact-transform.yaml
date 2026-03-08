@@ -1,0 +1,45 @@
+workflow:
+  id: example.artifact_transform
+  version: 1
+  description: "Generate structured data with an agent, then rename and extract artifacts."
+  author: "ergon-flow-expert"
+  tags: ["example", "artifact", "agent"]
+
+steps:
+  - id: review
+    kind: agent
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    output:
+      name: review
+      type: json
+    prompt: |
+      Return valid JSON with exactly these fields:
+      - title: string
+      - summary: string
+      - risk: string
+
+      Use this content:
+      title = "Ergon workflow review"
+      summary = "This is a small example for artifact transforms."
+      risk = "low"
+
+  - id: review.copy
+    kind: artifact
+    input: review
+    operation: rename:final.review
+
+  - id: review.title
+    kind: artifact
+    input: final.review
+    operation: extract:title:review.title
+
+  - id: review.summary
+    kind: artifact
+    input: final.review
+    operation: extract:summary:review.summary
+
+outputs:
+  review: artifacts.final.review
+  title: artifacts.review.title
+  summary: artifacts.review.summary
