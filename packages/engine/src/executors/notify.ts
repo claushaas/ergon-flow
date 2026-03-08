@@ -63,7 +63,7 @@ const DEFAULT_OPENCLAW_COMMAND = 'openclaw';
 const DEFAULT_OPENCLAW_ARGS = ['message', 'send'];
 
 function sanitizeLoggedMessage(message: string): string {
-	return JSON.stringify(message.replaceAll('\u0000', ''));
+	return message.replaceAll('\u0000', '');
 }
 
 function buildRunSummaryArtifact(

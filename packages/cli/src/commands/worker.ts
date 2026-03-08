@@ -137,6 +137,21 @@ export async function runWorkerCommand(
 		const executors = createDefaultExecutorRegistry({
 			providerConfigs: config.providerConfigs,
 		});
+		const maxRuns = commandOptions.maxRuns;
+
+		console.log(
+			maxRuns === undefined
+				? [
+						`[ergon-flow] worker=${workerId} started`,
+						'This worker will execute any queued run now and any new run created while it stays active.',
+						'Stop it manually with Ctrl+C.',
+					].join('\n')
+				: [
+						`[ergon-flow] worker=${workerId} started`,
+						`This worker will process up to ${maxRuns} run(s) before exiting.`,
+						'Stop it earlier with Ctrl+C.',
+					].join('\n'),
+		);
 
 		const result = await startWorker({
 			artifactBaseDir: commandOptions.artifactBaseDir ?? config.rootDir,
@@ -146,7 +161,7 @@ export async function runWorkerCommand(
 			leaseDurationMs: commandOptions.leaseDurationMs,
 			leaseRenewIntervalMs: commandOptions.leaseRenewIntervalMs,
 			maxPollIntervalMs: commandOptions.maxPollIntervalMs,
-			maxRuns: commandOptions.maxRuns,
+			maxRuns,
 			pollIntervalMs: commandOptions.pollIntervalMs,
 			rootDir: commandOptions.rootDir ?? config.rootDir,
 			workerId,

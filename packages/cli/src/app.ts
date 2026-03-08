@@ -1,0 +1,120 @@
+import {
+	parseApproveCommandArgs,
+	runApproveCommand,
+} from './commands/approve.js';
+import { runCancelCommand } from './commands/cancel.js';
+import { runInitCommand } from './commands/init.js';
+import { runLibrarySyncCommand } from './commands/library.js';
+import {
+	runRunCommand,
+	runRunListCommand,
+	runRunStatusCommand,
+} from './commands/run.js';
+import { runTemplateListCommand } from './commands/template.js';
+import { parseWorkerCommandArgs, runWorkerCommand } from './commands/worker.js';
+import { runWorkflowListCommand } from './commands/workflow.js';
+import { getCliHelpText, getCliVersionText } from './help.js';
+
+function readFlagValue(argv: string[], flagName: string): string | undefined {
+	const flagIndex = argv.indexOf(flagName);
+	if (flagIndex < 0) {
+		return undefined;
+	}
+
+	const value = argv[flagIndex + 1];
+	if (!value || value.startsWith('--')) {
+		throw new Error(`Missing value for ${flagName}`);
+	}
+
+	return value;
+}
+
+function readNumericFlagValue(
+	argv: string[],
+	flagName: string,
+): number | undefined {
+	const value = readFlagValue(argv, flagName);
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed)) {
+		throw new Error(`Invalid numeric value for ${flagName}: ${value}`);
+	}
+
+	return parsed;
+}
+
+export async function runCli(argv: string[]): Promise<void> {
+	const [command, subcommand, ...rest] = argv;
+
+	if (!command || command === 'help' || command === '--help') {
+		console.log(getCliHelpText());
+		return;
+	}
+	if (command === 'version' || command === '--version') {
+		console.log(getCliVersionText());
+		return;
+	}
+	if (command === 'init') {
+		runInitCommand({
+			rootDir: readFlagValue(argv.slice(1), '--root'),
+		});
+		return;
+	}
+	if (command === 'worker' && subcommand === 'start') {
+		await runWorkerCommand(parseWorkerCommandArgs(rest));
+		return;
+	}
+	if (command === 'library' && subcommand === 'sync') {
+		runLibrarySyncCommand({
+			force: rest.includes('--force'),
+			rootDir: readFlagValue(rest, '--root'),
+		});
+		return;
+	}
+	if (command === 'template' && subcommand === 'list') {
+		runTemplateListCommand();
+		return;
+	}
+	if (command === 'workflow' && subcommand === 'list') {
+		runWorkflowListCommand();
+		return;
+	}
+	if (command === 'approve' && subcommand) {
+		const { decision, stepId } = parseApproveCommandArgs(rest);
+		runApproveCommand(subcommand, stepId, { decision });
+		return;
+	}
+	if (command === 'cancel' && subcommand) {
+		runCancelCommand(subcommand);
+		return;
+	}
+	if (command === 'run' && subcommand === 'list') {
+		runRunListCommand({
+			limit: readNumericFlagValue(rest, '--limit'),
+			offset: readNumericFlagValue(rest, '--offset'),
+			status: readFlagValue(rest, '--status'),
+			workflowId: readFlagValue(rest, '--workflow'),
+		});
+		return;
+	}
+	if (command === 'run' && subcommand === 'status' && rest[0]) {
+		runRunStatusCommand(rest[0]);
+		return;
+	}
+	if (command === 'run' && subcommand) {
+		const inputsIndex = rest.indexOf('--inputs');
+		runRunCommand(subcommand, {
+			inputs:
+				inputsIndex >= 0 && inputsIndex < rest.length - 1
+					? rest[inputsIndex + 1]
+					: undefined,
+		});
+		return;
+	}
+	throw new Error(
+		`Unsupported command: ${[command, subcommand].filter(Boolean).join(' ') || '(empty)'}`,
+	);
+}
