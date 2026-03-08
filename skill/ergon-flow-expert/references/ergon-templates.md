@@ -114,6 +114,17 @@ Current limitation:
 
 Use `depends_on` for explicit sequencing and skip gating, not for concurrency.
 
+### Timed wait steps
+
+The current runtime supports a native `delay` step with:
+
+- `kind: delay`
+- `duration_ms`
+
+Use it when the worker should wait a fixed amount of time before continuing.
+`duration_ms` is a positive integer and is not currently interpolated from
+`inputs.*`.
+
 ### `retry`
 
 Supported fields:

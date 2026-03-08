@@ -1,6 +1,6 @@
 ---
 name: "ergon-flow-expert"
-description: "Use when a user wants to use, explain, create, edit, validate, troubleshoot, review, or run Ergon Flow workflows, or needs precise guidance for the `ergon` CLI in a real repository. This skill is for operating the current Ergon Flow runtime as implemented today: queue + worker execution, project-local `.ergon` bootstrap, YAML workflow templates, manual approvals, notifications, and the supported step kinds `agent`, `artifact`, `condition`, `exec`, `manual`, and `notify`. Do not use this skill for generic CI/CD advice, generic YAML authoring, or speculative future Ergon features that are not part of the current runtime contract."
+description: "Use when a user wants to use, explain, create, edit, validate, troubleshoot, review, or run Ergon Flow workflows, or needs precise guidance for the `ergon` CLI in a real repository. This skill is for operating the current Ergon Flow runtime as implemented today: queue + worker execution, project-local `.ergon` bootstrap, YAML workflow templates, manual approvals, notifications, timed waits, and the supported step kinds `agent`, `artifact`, `condition`, `delay`, `exec`, `manual`, and `notify`. Do not use this skill for generic CI/CD advice, generic YAML authoring, or speculative future Ergon features that are not part of the current runtime contract."
 ---
 
 # Ergon Flow Expert

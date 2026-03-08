@@ -1,7 +1,7 @@
 workflow:
   id: example.full
   version: 1
-  description: "Full example mixing agent, artifact, condition, exec, manual, notify, outputs, and on_failure."
+  description: "Full example mixing agent, artifact, condition, delay, exec, manual, notify, outputs, and on_failure."
   author: "ergon-flow-expert"
   tags: ["example", "full", "agent", "manual", "notify"]
 
@@ -72,10 +72,17 @@ steps:
     kind: condition
     expression: "{{ inputs.publish_report }}"
 
+  - id: settle
+    kind: delay
+    duration_ms: 1000
+    depends_on:
+      - should.publish
+
   - id: report.write
     kind: exec
     depends_on:
       - should.publish
+      - settle
     env:
       OUTPUT_FILE: "{{ inputs.report_file }}"
       REPORT_TITLE: "{{ artifacts.report.title }}"

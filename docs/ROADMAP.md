@@ -68,7 +68,7 @@ Done:
 Done:
 
 - sequential engine loop
-- executors for `agent`, `artifact`, `condition`, `exec`, `manual`, `notify`
+- executors for `agent`, `artifact`, `condition`, `delay`, `exec`, `manual`, `notify`
 - retry support on recoverable step failures
 - cancel before next step and during step execution
 - manual approval and rejection

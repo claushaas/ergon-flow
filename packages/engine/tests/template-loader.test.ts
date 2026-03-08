@@ -163,13 +163,32 @@ describe('template loader (C1)', () => {
 describe('template validation (C2)', () => {
 	it('validates a normalized valid template', () => {
 		const template = normalizeTemplate({
-			steps: [{ command: 'echo ok', id: 'step.exec', kind: 'exec' }],
+			steps: [
+				{ command: 'echo ok', id: 'step.exec', kind: 'exec' },
+				{ duration_ms: 100, id: 'step.delay', kind: 'delay' },
+			],
 			workflow: { id: 'workflow.valid', version: 1 },
 		});
 
 		const result = validateTemplate(template);
 		expect(result.valid).toBe(true);
 		expect(result.errors).toEqual([]);
+	});
+
+	it('rejects invalid delay duration_ms values', () => {
+		const template = normalizeTemplate({
+			steps: [
+				{ duration_ms: 0, id: 'step.zero', kind: 'delay' },
+				{ duration_ms: 1.5, id: 'step.float', kind: 'delay' },
+			],
+			workflow: { id: 'workflow.delay.invalid', version: 1 },
+		});
+
+		const result = validateTemplate(template);
+		expect(result.valid).toBe(false);
+		expect(
+			result.errors.filter((error) => error.path.endsWith('.duration_ms')),
+		).toHaveLength(2);
 	});
 
 	it('reports required field errors from template metadata and steps', () => {

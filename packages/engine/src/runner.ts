@@ -391,10 +391,17 @@ function startStepAttempt(
 	return withRunClaim(db, runId, claim, () => {
 		const now = new Date().toISOString();
 		const persistableRequest = persistableValue(request);
-		const stepRun = createStepRun(db, runId, step.id, stepAttempt, step.kind, {
-			dependsOn: step.depends_on ?? [],
-			request: persistableRequest,
-		});
+		const stepRun = createStepRun(
+			db,
+			runId,
+			step.id,
+			stepAttempt,
+			step.kind as Parameters<typeof createStepRun>[4],
+			{
+				dependsOn: step.depends_on ?? [],
+				request: persistableRequest,
+			},
+		);
 		appendEventInTransaction(
 			db,
 			runId,
@@ -619,6 +626,10 @@ function buildRequestSnapshot(
 					artifacts: context.artifacts,
 					inputs: context.inputs,
 				}),
+			};
+		case 'delay':
+			return {
+				duration_ms: step.duration_ms,
 			};
 		case 'manual':
 			return {
@@ -1075,6 +1086,8 @@ function getFailureCodeForStep(
 			return 'artifact_failed';
 		case 'condition':
 			return 'condition_failed';
+		case 'delay':
+			return 'delay_failed';
 		case 'exec':
 			return 'exec_failed';
 		case 'manual':

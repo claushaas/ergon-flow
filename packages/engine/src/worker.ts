@@ -129,6 +129,8 @@ function getFailureCodeForStep(step: StepDefinition): ErrorCode {
 			return 'artifact_failed';
 		case 'condition':
 			return 'condition_failed';
+		case 'delay':
+			return 'delay_failed';
 		case 'exec':
 			return 'exec_failed';
 		case 'manual':

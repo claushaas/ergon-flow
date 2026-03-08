@@ -115,6 +115,7 @@ The current runtime supports these step kinds:
 - `agent`
 - `artifact`
 - `condition`
+- `delay`
 - `exec`
 - `manual`
 - `notify`

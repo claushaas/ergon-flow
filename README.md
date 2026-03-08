@@ -39,6 +39,7 @@ Supported step kinds:
 - `agent`
 - `artifact`
 - `condition`
+- `delay`
 - `exec`
 - `manual`
 - `notify`

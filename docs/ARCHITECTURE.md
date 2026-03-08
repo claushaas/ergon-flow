@@ -216,3 +216,5 @@ These limits are deliberate in `v0.1.4`:
 - `library/agents` is not loaded by the runtime
 - `library/schemas` is not enforced at runtime
 - provider creation is limited to the supported adapter set in `packages/clients`
+- built-in step kinds are limited to `agent`, `artifact`, `condition`,
+  `delay`, `exec`, `manual`, and `notify`

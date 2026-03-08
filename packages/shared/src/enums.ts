@@ -4,6 +4,7 @@ export const STEP_KINDS = [
 	'agent',
 	'artifact',
 	'condition',
+	'delay',
 	'exec',
 	'manual',
 	'notify',
@@ -72,6 +73,7 @@ export type StepRunStatus = (typeof STEP_RUN_STATUSES)[number];
 export const ERROR_CODES = [
 	'artifact_failed',
 	'condition_failed',
+	'delay_failed',
 	'exec_failed',
 	'manual_rejected',
 	'provider_error',

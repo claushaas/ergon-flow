@@ -79,6 +79,7 @@ The runtime supports:
 - `agent`
 - `artifact`
 - `condition`
+- `delay`
 - `exec`
 - `manual`
 - `notify`

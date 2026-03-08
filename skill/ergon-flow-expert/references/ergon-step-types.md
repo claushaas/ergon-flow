@@ -7,6 +7,7 @@ Current step kinds:
 - `agent`
 - `exec`
 - `condition`
+- `delay`
 - `manual`
 - `notify`
 - `artifact`
@@ -300,6 +301,64 @@ ergon approve <run_id> <step_id> --decision reject
 - `agent` summarizes change
 - `manual` gates the risky phase
 - `exec` or `notify` continues after approval
+
+## `delay`
+
+### Purpose
+
+Use `delay` to make the worker wait for a fixed amount of time before moving to
+the next step.
+
+### When To Use
+
+- rate-limited external flows
+- timed buffers between side effects
+- workflows that need a small deterministic pause without shelling out to
+  `sleep`
+
+### When Not To Use
+
+- long waits that would be better modeled outside the worker lifecycle
+- dynamic wait values that depend on runtime calculation, because the current
+  contract uses a fixed `duration_ms`
+
+### Required Fields
+
+- `id`
+- `kind: delay`
+- `duration_ms`
+
+### Optional Fields
+
+- common step fields
+
+### Output Behavior
+
+`delay` does not emit artifacts.
+
+Its step output records:
+
+- `duration_ms`
+
+### Common Pitfalls
+
+- assuming `duration_ms` supports interpolation
+- using a very long wait when an external scheduler would be more appropriate
+- forgetting that `timeout_ms` still applies and can abort the delay early
+
+### Example
+
+```yaml
+- id: cool_down
+  kind: delay
+  duration_ms: 30000
+```
+
+### Good Composition
+
+- `notify` before the wait
+- `delay`
+- `exec` or `notify` after the wait
 
 ## `notify`
 

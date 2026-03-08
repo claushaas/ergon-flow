@@ -6,6 +6,7 @@ import {
 import { AgentExecutor } from './executors/agent.js';
 import { ArtifactExecutor } from './executors/artifact.js';
 import { ConditionExecutor } from './executors/condition.js';
+import { DelayExecutor } from './executors/delay.js';
 import { ExecExecutor, type ExecExecutorOptions } from './executors/exec.js';
 import { ExecutorRegistry } from './executors/index.js';
 import { ManualExecutor } from './executors/manual.js';
@@ -33,6 +34,7 @@ export function createDefaultExecutorRegistry(
 		}),
 		new ArtifactExecutor(),
 		new ConditionExecutor(),
+		new DelayExecutor(),
 		new ExecExecutor(options.exec),
 		new ManualExecutor(),
 		new NotifyExecutor({

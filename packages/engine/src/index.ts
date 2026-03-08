@@ -2,6 +2,7 @@ export * from './defaults.js';
 export * from './executors/agent.js';
 export * from './executors/artifact.js';
 export * from './executors/condition.js';
+export * from './executors/delay.js';
 export * from './executors/exec.js';
 export * from './executors/index.js';
 export * from './executors/manual.js';
