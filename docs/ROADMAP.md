@@ -3,11 +3,11 @@
 Version: `0.1`
 
 This document is no longer an aspirational checklist. It is the release-status
-ledger for `v0.1.4`.
+ledger for `v0.2.0`.
 
 ## Release Target
 
-`v0.1.4` is the current globally installable release of the queue + worker
+`v0.2.0` is the current globally installable release of the queue + worker
 runtime.
 
 The release is considered ready when all of the following are true:
@@ -32,7 +32,7 @@ The release is considered ready when all of the following are true:
 | P1 Artifacts, recovery, cancellation | Done | per-attempt artifacts, restore from successful attempts only, timeout and abort support |
 | P1/P2 Tests and documentation | Done | compiled CLI smoke, built-in workflow E2E, canonical docs rewritten |
 
-## Scope Closed in v0.1.4
+## Scope Closed in v0.2.0
 
 ### Foundations
 
@@ -83,7 +83,7 @@ Done:
 - built-in workflow E2E coverage
 - rewritten canonical docs
 
-## Deferred Beyond v0.1.4
+## Deferred Beyond v0.2.0
 
 The following items are intentionally out of scope for this release:
 
@@ -97,4 +97,4 @@ The following items are intentionally out of scope for this release:
 
 The repository contains `docs/ideas/agents` and `docs/ideas/schemas`, but these are
 currently repository assets rather than enforced runtime inputs. That is a
-deliberate limitation of `v0.1.4`, not a hidden incomplete implementation.
+deliberate limitation of `v0.2.0`, not a hidden incomplete implementation.
