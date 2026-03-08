@@ -1,0 +1,104 @@
+workflow:
+  id: agent.smoke
+  version: 1
+  description: "Smoke test an agent provider by generating a greeting, defining 'ergon', writing the result to a file, and notifying progress."
+  author: "ergon-flow"
+  tags: ["agent", "smoke", "notify", "test"]
+
+inputs:
+  output_file:
+    type: string
+    description: "File path where the ergon definition should be written."
+    default: ".ergon/tmp/agent-smoke/ergon-definition.txt"
+
+  notify:
+    type: object
+    description: "Notification backend config."
+    default:
+      channel: "stdout"
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+on_failure:
+  - id: notify.failure
+    kind: notify
+    name: "Notify failure"
+    description: "Send a failure notification when the smoke workflow aborts."
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow failed: agent.smoke
+
+      Failed step: {{ artifacts.failure.step_id }}
+      Error code: {{ artifacts.failure.code }}
+      Error message: {{ artifacts.failure.message }}
+
+steps:
+  - id: greet
+    kind: agent
+    name: "Generate greeting"
+    description: "Ask the agent for a short greeting."
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    output:
+      name: greeting
+      type: text
+    prompt: |
+      Send a short greeting in Brazilian Portuguese for a workflow smoke test.
+      Return plain text only.
+
+  - id: notify.greeting
+    kind: notify
+    name: "Notify greeting"
+    description: "Show the greeting returned by the agent."
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Agent greeting:
+
+      {{ artifacts.greeting }}
+
+  - id: define
+    kind: agent
+    name: "Define ergon"
+    description: "Ask the agent for the definition of the Greek word ergon."
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    output:
+      name: definition
+      type: text
+    prompt: |
+      Define the Greek word "ergon" in 2 to 4 sentences.
+      Mention its core meaning and keep the answer in English.
+      Return plain text only.
+
+  - id: file.write
+    kind: exec
+    name: "Write definition to file"
+    description: "Persist the agent definition to a local file."
+    env:
+      OUTPUT_FILE: "{{ inputs.output_file }}"
+      ERGON_DEFINITION: "{{ artifacts.definition }}"
+    command: |
+      set -euo pipefail
+      mkdir -p "$(dirname "$OUTPUT_FILE")"
+      printf '%s\n' "$ERGON_DEFINITION" > "$OUTPUT_FILE"
+      printf 'wrote %s\n' "$OUTPUT_FILE"
+
+  - id: notify.complete
+    kind: notify
+    name: "Notify completion"
+    description: "Inform that the file was created successfully."
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: agent.smoke
+
+      Definition file:
+      {{ inputs.output_file }}
+
+outputs:
+  greeting: artifacts.greeting
+  definition: artifacts.definition
+  file_path: inputs.output_file
+  write_result: artifacts.file.write.result
