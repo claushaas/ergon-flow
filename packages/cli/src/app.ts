@@ -10,6 +10,7 @@ import {
 	runRunListCommand,
 	runRunStatusCommand,
 } from './commands/run.js';
+import { runSkillInstallCommand } from './commands/skill.js';
 import { runTemplateListCommand } from './commands/template.js';
 import { parseWorkerCommandArgs, runWorkerCommand } from './commands/worker.js';
 import { runWorkflowListCommand } from './commands/workflow.js';
@@ -70,6 +71,14 @@ export async function runCli(argv: string[]): Promise<void> {
 	if (command === 'library' && subcommand === 'sync') {
 		runLibrarySyncCommand({
 			force: rest.includes('--force'),
+			rootDir: readFlagValue(rest, '--root'),
+		});
+		return;
+	}
+	if (command === 'skill' && subcommand === 'install') {
+		const skillId = rest[0] && !rest[0].startsWith('--') ? rest[0] : undefined;
+		runSkillInstallCommand(skillId, {
+			destinationDir: readFlagValue(rest, '--path'),
 			rootDir: readFlagValue(rest, '--root'),
 		});
 		return;

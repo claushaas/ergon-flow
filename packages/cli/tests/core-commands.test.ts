@@ -2,6 +2,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
@@ -31,6 +32,7 @@ import {
 	listWorkflowRuns,
 	scheduleRun,
 } from '../src/commands/run.js';
+import { installSkill } from '../src/commands/skill.js';
 import { listTemplates } from '../src/commands/template.js';
 import { syncWorkflows } from '../src/commands/workflow.js';
 import { loadCliConfig } from '../src/config/index.js';
@@ -55,6 +57,21 @@ function writeWorkflow(
 
 function initializeProjectRoot(rootDir: string): void {
 	initProject({ rootDir });
+}
+
+function writeSkill(rootDir: string, skillId: string): void {
+	const skillDir = path.join(rootDir, 'skill', skillId, 'references');
+	mkdirSync(skillDir, { recursive: true });
+	writeFileSync(
+		path.join(rootDir, 'skill', skillId, 'SKILL.md'),
+		`---
+name: ${skillId}
+description: test skill
+---
+`,
+		'utf8',
+	);
+	writeFileSync(path.join(skillDir, 'guide.md'), '# Guide\n', 'utf8');
 }
 
 afterEach(() => {
@@ -101,6 +118,70 @@ steps:
 				template.path.startsWith('embedded/library/workflows/'),
 			),
 		).toBe(true);
+	});
+
+	it('installs a repo-distributed skill into the default ./skills directory', () => {
+		const rootDir = createTempRoot();
+		const nestedDir = path.join(rootDir, 'packages', 'cli');
+		mkdirSync(nestedDir, { recursive: true });
+		writeSkill(rootDir, 'ergon-flow-expert');
+
+		const previousCwd = process.cwd();
+		process.chdir(nestedDir);
+		try {
+			const result = installSkill(undefined);
+
+			expect(realpathSync(result.rootDir)).toBe(realpathSync(rootDir));
+			expect(result.skillId).toBe('ergon-flow-expert');
+			expect(realpathSync(result.destinationPath)).toBe(
+				realpathSync(path.join(nestedDir, 'skills', 'ergon-flow-expert')),
+			);
+			expect(result.filesCopied).toBe(2);
+			expect(
+				readFileSync(path.join(result.destinationPath, 'SKILL.md'), 'utf8'),
+			).toContain('name: ergon-flow-expert');
+		} finally {
+			process.chdir(previousCwd);
+		}
+	});
+
+	it('requires an explicit skill id when multiple repo-distributed skills exist', () => {
+		const rootDir = createTempRoot();
+		writeSkill(rootDir, 'ergon-flow-expert');
+		writeSkill(rootDir, 'release-version-bump');
+
+		expect(() => installSkill(undefined, { rootDir })).toThrow(
+			'Multiple skills are available',
+		);
+	});
+
+	it('fails clearly when the repository does not distribute any skills', () => {
+		const rootDir = createTempRoot();
+
+		expect(() => installSkill(undefined, { rootDir })).toThrow(
+			'No repo-distributed skills were found',
+		);
+	});
+
+	it('installs a skill into an explicit destination path', () => {
+		const rootDir = createTempRoot();
+		const destinationDir = path.join(rootDir, '.codex', 'skills');
+		writeSkill(rootDir, 'ergon-flow-expert');
+
+		const result = installSkill('ergon-flow-expert', {
+			destinationDir,
+			rootDir,
+		});
+
+		expect(realpathSync(result.destinationPath)).toBe(
+			realpathSync(path.join(destinationDir, 'ergon-flow-expert')),
+		);
+		expect(
+			readFileSync(
+				path.join(result.destinationPath, 'references', 'guide.md'),
+				'utf8',
+			),
+		).toBe('# Guide\n');
 	});
 
 	it('syncs workflows into storage and lists them', () => {

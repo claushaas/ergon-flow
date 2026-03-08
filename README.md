@@ -173,6 +173,7 @@ Current commands:
 
 - `ergon init [--root <path>]`
 - `ergon library sync [--force] [--root <path>]`
+- `ergon skill install [skill_id] [--path <dir>] [--root <path>]`
 - `ergon template list`
 - `ergon workflow list`
 - `ergon run <workflow_id> [--inputs <json-or-path>]`
