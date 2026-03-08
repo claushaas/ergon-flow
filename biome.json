@@ -63,9 +63,7 @@
 	},
 	"overrides": [
 		{
-			"includes": [
-				"**/*.stories.*"
-			],
+			"includes": ["**/*.stories.*"],
 			"linter": {
 				"rules": {
 					"style": {
