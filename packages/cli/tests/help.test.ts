@@ -8,6 +8,8 @@ describe('CLI help and version surface', () => {
 		expect(helpText).toContain('pnpm add -g @claushaas/ergon-cli');
 		expect(helpText).toContain('ergon init');
 		expect(helpText).toContain('ergon library sync');
+		expect(helpText).toContain('ergon run list');
+		expect(helpText).toContain('ergon run status');
 		expect(helpText).toContain(
 			'Stateful commands require an initialized .ergon project.',
 		);
@@ -15,6 +17,6 @@ describe('CLI help and version surface', () => {
 	});
 
 	it('renders the CLI version from package metadata', () => {
-		expect(getCliVersionText()).toBe('0.1.2');
+		expect(getCliVersionText()).toBe('0.1.3');
 	});
 });

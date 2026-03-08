@@ -8,6 +8,7 @@ import type {
 	ArtifactType,
 	InputSpec,
 	InputType,
+	NotifyStepDefinition,
 	StepDefinition,
 	WorkflowMetadata,
 	WorkflowTemplate,
@@ -250,10 +251,44 @@ export function normalizeTemplate(rawTemplate: unknown): WorkflowTemplate {
 	return {
 		artifacts: normalizeArtifacts(template.artifacts),
 		inputs: normalizeInputs(template.inputs),
+		on_failure: normalizeOnFailure(template.on_failure),
 		outputs: normalizeOutputs(template.outputs),
 		steps: normalizeSteps(template.steps),
 		workflow: normalizeWorkflow(template.workflow),
 	};
+}
+
+function normalizeOnFailure(
+	rawOnFailure: unknown,
+): NotifyStepDefinition[] | undefined {
+	if (!Array.isArray(rawOnFailure)) {
+		return undefined;
+	}
+
+	const normalized = rawOnFailure
+		.map((rawStep) => {
+			const step = asRecord(rawStep);
+			if (
+				!step ||
+				typeof step.id !== 'string' ||
+				step.kind !== 'notify' ||
+				typeof step.channel !== 'string' ||
+				typeof step.message !== 'string'
+			) {
+				return null;
+			}
+
+			return {
+				...step,
+				channel: step.channel,
+				id: step.id,
+				kind: 'notify',
+				message: step.message,
+			} satisfies NotifyStepDefinition;
+		})
+		.filter((step): step is NotifyStepDefinition => step !== null);
+
+	return normalized.length > 0 ? normalized : undefined;
 }
 
 export function loadTemplateFromFile(templatePath: string): LoadedTemplate {
@@ -472,10 +507,9 @@ function validateInterpolatedValue(
 
 function validateStepRequiredFields(
 	step: StepDefinition,
-	index: number,
+	stepPath: string,
 	errors: TemplateValidationError[],
 ): void {
-	const stepPath = `steps[${index}]`;
 	if (
 		step.timeout_ms !== undefined &&
 		(!Number.isInteger(step.timeout_ms) || step.timeout_ms <= 0)
@@ -718,7 +752,36 @@ export function validateTemplate(
 			continue;
 		}
 
-		validateStepRequiredFields(step, index, errors);
+		validateStepRequiredFields(step, stepPath, errors);
+	}
+
+	const onFailureStepIds = new Set<string>();
+	for (const [index, step] of (template.on_failure ?? []).entries()) {
+		const stepPath = `on_failure[${index}]`;
+		const stepId = step.id;
+
+		if (!isNonEmptyString(stepId)) {
+			pushError(errors, `${stepPath}.id`, 'step.id is required');
+		} else if (stepIds.has(stepId) || onFailureStepIds.has(stepId)) {
+			pushError(
+				errors,
+				`${stepPath}.id`,
+				`duplicate step id "${stepId}" is not allowed`,
+			);
+		} else {
+			onFailureStepIds.add(stepId);
+		}
+
+		if (step.kind !== 'notify') {
+			pushError(
+				errors,
+				`${stepPath}.kind`,
+				'on_failure steps currently support only kind "notify"',
+			);
+			continue;
+		}
+
+		validateStepRequiredFields(step, stepPath, errors);
 	}
 
 	for (const [index, step] of template.steps.entries()) {
@@ -890,6 +953,39 @@ export function validateTemplate(
 
 		for (const artifactName of getStepArtifactNames(step)) {
 			availableArtifacts.add(artifactName);
+		}
+	}
+
+	const availableFailureArtifacts = new Set(availableArtifacts);
+	availableFailureArtifacts.add('failure');
+
+	for (const [index, step] of (template.on_failure ?? []).entries()) {
+		const stepPath = `on_failure[${index}]`;
+		validateInterpolatedValue(
+			errors,
+			step.channel,
+			`${stepPath}.channel`,
+			availableInputs,
+			availableFailureArtifacts,
+		);
+		validateInterpolatedValue(
+			errors,
+			step.message,
+			`${stepPath}.message`,
+			availableInputs,
+			availableFailureArtifacts,
+		);
+		if (step.target) {
+			validateInterpolatedValue(
+				errors,
+				step.target,
+				`${stepPath}.target`,
+				availableInputs,
+				availableFailureArtifacts,
+			);
+		}
+		for (const artifactName of getStepArtifactNames(step)) {
+			availableFailureArtifacts.add(artifactName);
 		}
 	}
 
@@ -1131,6 +1227,18 @@ export function validateTemplateInterpolation(
 			pushError(
 				errors,
 				`steps[${index}]`,
+				error instanceof Error ? error.message : 'interpolation failed',
+			);
+		}
+	}
+
+	for (const [index, step] of (template.on_failure ?? []).entries()) {
+		try {
+			renderStepRequestPayload(step, context);
+		} catch (error) {
+			pushError(
+				errors,
+				`on_failure[${index}]`,
 				error instanceof Error ? error.message : 'interpolation failed',
 			);
 		}

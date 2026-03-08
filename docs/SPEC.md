@@ -162,7 +162,7 @@ own `step_runs` row and attempt-local artifact files.
 If a worker lease expires while a run is `running`, another worker may reclaim
 the run.
 
-Recovery behavior in `v0.1.2`:
+Recovery behavior in `v0.1.3`:
 
 - the stale in-flight step is marked failed
 - the engine decides whether that step is retryable
@@ -201,7 +201,7 @@ Current CLI commands:
 - `template list`
 - `workflow list`
 - `run`
-- `run-status`
+- `run status`
 - `worker start`
 - `approve`
 - `cancel`
@@ -225,10 +225,10 @@ Bootstrap and root-discovery rules:
 - if no `.ergon/` exists, the current directory is treated as an uninitialized
   location
 - `template list` may read from the embedded package library before init
-- `workflow list`, `run`, `run-status`, `worker start`, `approve` and `cancel`
+- `workflow list`, `run`, `run status`, `worker start`, `approve` and `cancel`
   require `ergon init`
 
-## Explicit Non-Goals for v0.1.2
+## Explicit Non-Goals for v0.1.3
 
 These are out of scope in the current release:
 

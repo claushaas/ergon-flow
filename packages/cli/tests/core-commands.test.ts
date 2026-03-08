@@ -26,7 +26,11 @@ import { decideManualStep } from '../src/commands/approve.js';
 import { cancelWorkflowRun } from '../src/commands/cancel.js';
 import { initProject } from '../src/commands/init.js';
 import { syncLibrary } from '../src/commands/library.js';
-import { getRunStatus, scheduleRun } from '../src/commands/run.js';
+import {
+	getRunStatus,
+	listWorkflowRuns,
+	scheduleRun,
+} from '../src/commands/run.js';
 import { listTemplates } from '../src/commands/template.js';
 import { syncWorkflows } from '../src/commands/workflow.js';
 import { loadCliConfig } from '../src/config/index.js';
@@ -169,6 +173,54 @@ steps:
 		expect(status.run.id).toBe(run.id);
 		expect(status.run.status).toBe('queued');
 		expect(status.stepRuns).toEqual([]);
+	});
+
+	it('lists runs with workflow and status filters', () => {
+		const rootDir = createTempRoot();
+		const dbPath = path.join(rootDir, '.ergon', 'storage', 'ergon.db');
+		initializeProjectRoot(rootDir);
+		writeWorkflow(
+			rootDir,
+			'code.list.yaml',
+			`
+workflow:
+  id: code.list
+  version: 1
+steps:
+  - id: echo
+    kind: exec
+    command: "echo ok"
+`,
+		);
+
+		const runA = scheduleRun('code.list', { dbPath, rootDir });
+		const runB = scheduleRun('code.list', { dbPath, rootDir });
+		expect(runA.id).not.toBe(runB.id);
+
+		const allRuns = listWorkflowRuns({
+			dbPath,
+			rootDir,
+			workflowId: 'code.list',
+		});
+		expect(allRuns).toHaveLength(2);
+		expect(allRuns.every((run) => run.workflow_id === 'code.list')).toBe(true);
+
+		const queuedRuns = listWorkflowRuns({
+			dbPath,
+			rootDir,
+			status: 'queued',
+			workflowId: 'code.list',
+		});
+		expect(queuedRuns).toHaveLength(2);
+		expect(queuedRuns.every((run) => run.status === 'queued')).toBe(true);
+
+		const limitedRuns = listWorkflowRuns({
+			dbPath,
+			limit: 1,
+			rootDir,
+			workflowId: 'code.list',
+		});
+		expect(limitedRuns).toHaveLength(1);
 	});
 
 	it('materializes workflow input defaults when scheduling a run', () => {
@@ -357,6 +409,7 @@ steps:
 		const configPath = path.join(rootDir, '.ergon', 'config.json');
 		const parsedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as {
 			cli_version: string;
+			env_file?: string;
 			format_version: number;
 			initialized_at: string;
 			library_files: Record<string, string>;
@@ -366,8 +419,9 @@ steps:
 		expect(result.rootDir).toBe(rootDir);
 		expect(result.configPath).toBe(configPath);
 		expect(parsedConfig.format_version).toBe(1);
-		expect(parsedConfig.cli_version).toBe('0.1.2');
-		expect(parsedConfig.library_version).toBe('0.1.2');
+		expect(parsedConfig.cli_version).toBe('0.1.3');
+		expect(parsedConfig.env_file).toBe('.env');
+		expect(parsedConfig.library_version).toBe('0.1.3');
 		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
 		expect(Object.keys(parsedConfig.library_files)).toContain(
 			'workflows/code.refactor.yaml',
@@ -428,7 +482,7 @@ steps:
 
 		expect(summary.updated).toContain('workflows/code.refactor.yaml');
 		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
-		expect(parsedConfig.library_version).toBe('0.1.2');
+		expect(parsedConfig.library_version).toBe('0.1.3');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);

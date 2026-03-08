@@ -1,9 +1,11 @@
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
 	loadProjectLibraryMetadata,
 	type ProjectLibraryMetadata,
 	resolveProjectPaths,
 } from '../project.js';
+import { resolvePathWithinBase } from '../utils.js';
 
 export interface CliConfig {
 	configPath: string;
@@ -25,27 +27,149 @@ function readStringEnv(name: string): string | undefined {
 	return value ? value : undefined;
 }
 
+function readStringValue(
+	values: Readonly<Record<string, string | undefined>>,
+	name: string,
+): string | undefined {
+	const value = values[name]?.trim();
+	return value ? value : undefined;
+}
+
+function parseDotEnv(content: string): Record<string, string> {
+	const parsed: Record<string, string> = {};
+
+	for (const rawLine of content.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith('#')) {
+			continue;
+		}
+
+		const normalized = line.startsWith('export ')
+			? line.slice('export '.length).trim()
+			: line;
+		const separatorIndex = normalized.indexOf('=');
+		if (separatorIndex <= 0) {
+			continue;
+		}
+
+		const key = normalized.slice(0, separatorIndex).trim();
+		if (!key) {
+			continue;
+		}
+
+		let value = normalized.slice(separatorIndex + 1).trim();
+		if (
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+		) {
+			value = value.slice(1, -1);
+		}
+
+		parsed[key] = value;
+	}
+
+	return parsed;
+}
+
+function loadProjectEnvValues(
+	rootDir: string,
+	projectMetadata: ProjectLibraryMetadata | null,
+): Record<string, string> {
+	const relativeEnvPath = projectMetadata?.env_file?.trim() || '.env';
+	const envPath = resolvePathWithinBase(rootDir, relativeEnvPath, 'env file');
+	if (!existsSync(envPath)) {
+		return {};
+	}
+
+	return parseDotEnv(readFileSync(envPath, 'utf8'));
+}
+
 function splitArgs(value: string | undefined): string[] | undefined {
-	return value?.split(/\s+/).filter((entry) => entry.length > 0);
+	if (!value) {
+		return undefined;
+	}
+
+	const args: string[] = [];
+	let current = '';
+	let inSingleQuote = false;
+	let inDoubleQuote = false;
+	let escaping = false;
+
+	for (const char of value) {
+		if (escaping) {
+			current += char;
+			escaping = false;
+			continue;
+		}
+
+		if (char === '\\') {
+			escaping = true;
+			continue;
+		}
+
+		if (char === "'" && !inDoubleQuote) {
+			inSingleQuote = !inSingleQuote;
+			continue;
+		}
+
+		if (char === '"' && !inSingleQuote) {
+			inDoubleQuote = !inDoubleQuote;
+			continue;
+		}
+
+		if (!inSingleQuote && !inDoubleQuote && /\s/.test(char)) {
+			if (current.length > 0) {
+				args.push(current);
+				current = '';
+			}
+			continue;
+		}
+
+		current += char;
+	}
+
+	if (escaping) {
+		current += '\\';
+	}
+
+	if (inSingleQuote || inDoubleQuote) {
+		throw new Error('Invalid provider args: unterminated quoted string');
+	}
+
+	if (current.length > 0) {
+		args.push(current);
+	}
+
+	return args.length > 0 ? args : undefined;
 }
 
 export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 	const ergonRootDir = readStringEnv('ERGON_ROOT_DIR');
-	const ergonDbPath = readStringEnv('ERGON_DB_PATH');
-	const claudeCodeCommand = readStringEnv('CLAUDE_CODE_COMMAND');
-	const claudeCodeArgs = readStringEnv('CLAUDE_CODE_ARGS');
-	const codexCommand = readStringEnv('CODEX_COMMAND');
-	const codexArgs = readStringEnv('CODEX_ARGS');
-	const ollamaBaseUrl = readStringEnv('OLLAMA_BASE_URL');
-	const ollamaModel = readStringEnv('OLLAMA_MODEL');
-	const openClawCommand = readStringEnv('OPENCLAW_COMMAND');
-	const openClawArgs = readStringEnv('OPENCLAW_ARGS');
-	const openRouterApiKey = readStringEnv('OPENROUTER_API_KEY');
-	const openRouterAppName = readStringEnv('OPENROUTER_APP_NAME');
-	const openRouterBaseUrl = readStringEnv('OPENROUTER_BASE_URL');
-	const openRouterModel = readStringEnv('OPENROUTER_MODEL');
-	const openRouterSiteUrl = readStringEnv('OPENROUTER_SITE_URL');
 	const project = resolveProjectPaths(cwd, ergonRootDir);
+	const projectMetadata = loadProjectLibraryMetadata(project);
+	const mergedEnv = {
+		...loadProjectEnvValues(project.rootDir, projectMetadata),
+		...Object.fromEntries(
+			Object.entries(process.env).map(([key, value]) => [
+				key,
+				value ?? undefined,
+			]),
+		),
+	};
+	const ergonDbPath = readStringValue(mergedEnv, 'ERGON_DB_PATH');
+	const claudeCodeCommand = readStringValue(mergedEnv, 'CLAUDE_CODE_COMMAND');
+	const claudeCodeArgs = readStringValue(mergedEnv, 'CLAUDE_CODE_ARGS');
+	const codexCommand = readStringValue(mergedEnv, 'CODEX_COMMAND');
+	const codexArgs = readStringValue(mergedEnv, 'CODEX_ARGS');
+	const ollamaBaseUrl = readStringValue(mergedEnv, 'OLLAMA_BASE_URL');
+	const ollamaModel = readStringValue(mergedEnv, 'OLLAMA_MODEL');
+	const openClawCommand = readStringValue(mergedEnv, 'OPENCLAW_COMMAND');
+	const openClawArgs = readStringValue(mergedEnv, 'OPENCLAW_ARGS');
+	const openRouterApiKey = readStringValue(mergedEnv, 'OPENROUTER_API_KEY');
+	const openRouterAppName = readStringValue(mergedEnv, 'OPENROUTER_APP_NAME');
+	const openRouterBaseUrl = readStringValue(mergedEnv, 'OPENROUTER_BASE_URL');
+	const openRouterModel = readStringValue(mergedEnv, 'OPENROUTER_MODEL');
+	const openRouterSiteUrl = readStringValue(mergedEnv, 'OPENROUTER_SITE_URL');
 
 	return {
 		configPath: project.configPath,
@@ -58,7 +182,7 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 		ergonDir: project.ergonDir,
 		initialized: project.initialized,
 		libraryDir: project.libraryDir,
-		projectMetadata: loadProjectLibraryMetadata(project),
+		projectMetadata,
 		providerConfigs: {
 			'claude-code':
 				claudeCodeCommand || claudeCodeArgs

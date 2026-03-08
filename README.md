@@ -19,7 +19,7 @@ The runtime is designed around auditability:
 - every artifact is stored on disk and indexed in SQLite
 - every significant transition is appended to `events`
 
-## What v0.1.2 Includes
+## What v0.1.3 Includes
 
 The current release scope is pragmatic and explicit:
 
@@ -51,7 +51,7 @@ Supported providers:
 - `claude-code`
 - `openclaw`
 
-## What v0.1.2 Does Not Include
+## What v0.1.3 Does Not Include
 
 These repository assets exist, but they are not enforced by the runtime yet:
 
@@ -128,7 +128,7 @@ The worker does not execute steps inline from the CLI. The flow is:
 ```text
 ergon run <workflow> -> workflow_runs.status = queued
 ergon worker start   -> claim + execute
-ergon run-status     -> inspect persisted state
+ergon run status     -> inspect persisted state
 ```
 
 Built-in workflows such as `code.refactor` and `code.hotfix` require provider
@@ -151,6 +151,11 @@ Relevant environment variables:
 - `OPENCLAW_COMMAND`
 - `OPENCLAW_ARGS`
 
+The CLI also loads a project-local env file from `.env` at the repository root
+by default. The path can be overridden with `env_file` in
+`./.ergon/config.json`. Exported shell variables still take precedence over the
+env file.
+
 Provider prerequisites:
 
 - `openrouter`: requires `OPENROUTER_API_KEY`
@@ -170,12 +175,13 @@ Current commands:
 - `ergon template list`
 - `ergon workflow list`
 - `ergon run <workflow_id> [--inputs <json-or-path>]`
-- `ergon run-status <run_id>`
+- `ergon run list [--status <status>] [--workflow <workflow_id>] [--limit <n>] [--offset <n>]`
+- `ergon run status <run_id>`
 - `ergon worker start [runtime flags]`
 - `ergon approve <run_id> <step_id> --decision approve|reject`
 - `ergon cancel <run_id>`
 
-Stateful commands (`workflow list`, `run`, `run-status`, `worker start`,
+Stateful commands (`workflow list`, `run`, `run status`, `worker start`,
 `approve`, `cancel`) require an initialized project. `template list` can run
 before init by reading from the embedded package library without mutating the
 filesystem.
@@ -215,7 +221,7 @@ The repository treats these documents as source of truth:
 
 ## Release Flow
 
-Public releases are cut from `main` using Git tags such as `v0.1.2`.
+Public releases are cut from `main` using Git tags such as `v0.1.3`.
 
 Before tagging a release:
 
