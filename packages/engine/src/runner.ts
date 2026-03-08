@@ -37,6 +37,7 @@ import {
 	stepAttemptDir,
 	updateRunCursor,
 	updateStepRunStatus,
+	type WorkflowRunRow,
 	withRunClaim,
 } from '@claushaas/ergon-storage';
 import type {
@@ -84,6 +85,16 @@ interface FailureMetadata {
 	code: ErrorCode;
 	detail: Record<string, unknown>;
 	message: string;
+}
+
+interface FailureArtifactPayload {
+	code: string | null;
+	detail: unknown;
+	message: string | null;
+	run_id: string;
+	step_id: string | null;
+	workflow_id: string;
+	workflow_version: number;
 }
 
 interface PreparedStepExecution {
@@ -642,6 +653,182 @@ function buildRequestSnapshot(
 			const exhaustive: never = step;
 			void exhaustive;
 			return undefined;
+		}
+	}
+}
+
+function buildFailureArtifact(run: WorkflowRunRow): FailureArtifactPayload {
+	return {
+		code: run.error_code,
+		detail: parseJson(run.error_detail_json, null),
+		message: run.error_message,
+		run_id: run.id,
+		step_id: run.current_step_id,
+		workflow_id: run.workflow_id,
+		workflow_version: run.workflow_version,
+	};
+}
+
+async function executeOnFailureSteps(options: {
+	artifactBaseDir: string;
+	db: DatabaseSync;
+	executors: ExecutorRegistry;
+	inputs: Record<string, unknown>;
+	run: WorkflowRunRow;
+	state: ResolvedRunState;
+	template: WorkflowTemplate;
+	workerId: string;
+}): Promise<void> {
+	const steps = options.template.on_failure ?? [];
+	if (steps.length === 0) {
+		return;
+	}
+
+	const artifacts = {
+		...options.state.artifacts,
+		failure: buildFailureArtifact(options.run),
+	};
+	const stepRuns = listStepRuns(options.db, options.run.id);
+
+	for (const [index, step] of steps.entries()) {
+		const stepAttempt = getStepAttempt(step.id, stepRuns);
+		const context = createExecutionContext({
+			artifacts,
+			inputs: options.inputs,
+			run: {
+				attempt: stepAttempt,
+				runId: options.run.id,
+				stepIndex: options.template.steps.length + index,
+				workerId: options.workerId,
+				workflowId: options.template.workflow.id,
+				workflowVersion: options.template.workflow.version,
+			},
+		});
+		const request = buildRequestSnapshot(step, context);
+		const startedAt = new Date().toISOString();
+		const persistableRequest = persistableValue(request);
+		const stepRun = createStepRun(
+			options.db,
+			options.run.id,
+			step.id,
+			stepAttempt,
+			step.kind,
+			{
+				dependsOn: step.depends_on ?? [],
+				request: persistableRequest,
+			},
+		);
+		stepRuns.push(stepRun);
+
+		appendEventInTransaction(
+			options.db,
+			options.run.id,
+			'step_scheduled',
+			{
+				attempt: stepAttempt,
+				step_id: step.id,
+				step_kind: step.kind,
+			},
+			{
+				actor: `worker:${options.workerId}`,
+				stepRunId: stepRun.id,
+				ts: startedAt,
+			},
+		);
+		updateStepRunStatus(options.db, stepRun.id, 'running', {
+			request: persistableRequest,
+			startedAt,
+		});
+		appendEventInTransaction(
+			options.db,
+			options.run.id,
+			'step_started',
+			{
+				attempt: stepAttempt,
+				step_id: step.id,
+				step_kind: step.kind,
+			},
+			{
+				actor: `worker:${options.workerId}`,
+				stepRunId: stepRun.id,
+				ts: startedAt,
+			},
+		);
+
+		try {
+			const result = await getStepExecutor(options.executors, step).execute(
+				step,
+				context,
+			);
+			if (result.status !== 'succeeded') {
+				throw new Error(
+					`Failure notification step "${step.id}" returned status ${result.status}`,
+				);
+			}
+
+			const stagedArtifacts = stageArtifacts(
+				options.artifactBaseDir,
+				options.run.id,
+				step,
+				stepAttempt,
+				stepRun.id,
+				result.artifacts ?? [],
+			);
+
+			try {
+				const storedArtifacts = finalizeArtifacts(options.db, stagedArtifacts);
+				Object.assign(artifacts, storedArtifacts);
+				appendStepEventsInTransaction(
+					options.db,
+					options.run.id,
+					stepRun.id,
+					options.workerId,
+					result.events,
+				);
+				updateStepRunStatus(options.db, stepRun.id, 'succeeded', {
+					finishedAt: new Date().toISOString(),
+					output: persistableValue(result.outputs),
+					response: persistableValue(result.outputs),
+				});
+				appendEventInTransaction(
+					options.db,
+					options.run.id,
+					'step_succeeded',
+					{
+						artifact_names: Object.keys(storedArtifacts),
+						step_id: step.id,
+					},
+					{
+						actor: `worker:${options.workerId}`,
+						stepRunId: stepRun.id,
+					},
+				);
+			} catch (error) {
+				cleanupStagedArtifacts(stagedArtifacts);
+				throw error;
+			}
+		} catch (error) {
+			const failure = buildFailureMetadata(step, error);
+			updateStepRunStatus(options.db, stepRun.id, 'failed', {
+				errorCode: failure.code,
+				errorDetail: persistableValue(failure.detail),
+				errorMessage: failure.message,
+				finishedAt: new Date().toISOString(),
+			});
+			appendEventInTransaction(
+				options.db,
+				options.run.id,
+				'step_failed',
+				{
+					error_code: failure.code,
+					error_message: failure.message,
+					step_id: step.id,
+				},
+				{
+					actor: `worker:${options.workerId}`,
+					stepRunId: stepRun.id,
+				},
+			);
 		}
 	}
 }
@@ -1813,35 +2000,52 @@ export async function executeRun(
 
 	mkdirSync(artifactsDir(artifactBaseDir, run.id), { recursive: true });
 
-	for (
-		let stepIndex = state.nextStepIndex;
-		stepIndex < template.steps.length;
-		stepIndex += 1
-	) {
-		const step = template.steps[stepIndex];
-		if (!step) {
-			break;
-		}
+	try {
+		for (
+			let stepIndex = state.nextStepIndex;
+			stepIndex < template.steps.length;
+			stepIndex += 1
+		) {
+			const step = template.steps[stepIndex];
+			if (!step) {
+				break;
+			}
 
-		const stepResult = await executeStep({
-			artifactBaseDir,
-			claim,
-			db: options.db,
-			executors: options.executors,
-			inputs,
-			runId: run.id,
-			state,
-			step,
-			stepIndex,
-			stepRuns,
-			template,
-		});
-		if (stepResult.canceledRun) {
-			return stepResult.canceledRun;
+			const stepResult = await executeStep({
+				artifactBaseDir,
+				claim,
+				db: options.db,
+				executors: options.executors,
+				inputs,
+				runId: run.id,
+				state,
+				step,
+				stepIndex,
+				stepRuns,
+				template,
+			});
+			if (stepResult.canceledRun) {
+				return stepResult.canceledRun;
+			}
+			if (!stepResult.shouldContinue) {
+				break;
+			}
 		}
-		if (!stepResult.shouldContinue) {
-			break;
+	} catch (error) {
+		const failedRun = getRun(options.db, run.id);
+		if (failedRun?.status === 'failed') {
+			await executeOnFailureSteps({
+				artifactBaseDir,
+				db: options.db,
+				executors: options.executors,
+				inputs,
+				run: failedRun,
+				state,
+				template,
+				workerId: claim.workerId,
+			});
 		}
+		throw error;
 	}
 
 	const workflowResult = resolveWorkflowOutputs(

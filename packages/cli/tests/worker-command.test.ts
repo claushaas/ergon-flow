@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -115,6 +115,52 @@ describe('loadCliConfig', () => {
 		});
 	});
 
+	it('parses quoted provider args with embedded spaces', () => {
+		const rootDir = createTempRoot();
+		process.env.CODEX_COMMAND = 'codex';
+		process.env.CODEX_ARGS =
+			'exec --label "deps refresh" --note \'minor and patch only\'';
+
+		const config = loadCliConfig(rootDir);
+
+		expect(config.providerConfigs).toMatchObject({
+			codex: {
+				args: [
+					'exec',
+					'--label',
+					'deps refresh',
+					'--note',
+					'minor and patch only',
+				],
+				command: 'codex',
+			},
+		});
+	});
+
+	it('parses escaped whitespace inside provider args', () => {
+		const rootDir = createTempRoot();
+		process.env.CODEX_COMMAND = 'codex';
+		process.env.CODEX_ARGS = 'exec --label deps\\ refresh';
+
+		const config = loadCliConfig(rootDir);
+
+		expect(config.providerConfigs).toMatchObject({
+			codex: {
+				args: ['exec', '--label', 'deps refresh'],
+			},
+		});
+	});
+
+	it('rejects unterminated quoted provider args', () => {
+		const rootDir = createTempRoot();
+		process.env.CODEX_COMMAND = 'codex';
+		process.env.CODEX_ARGS = 'exec --label "broken';
+
+		expect(() => loadCliConfig(rootDir)).toThrow(
+			'Invalid provider args: unterminated quoted string',
+		);
+	});
+
 	it('walks up to the nearest initialized project root', () => {
 		const rootDir = createTempRoot();
 		initProject({ rootDir });
@@ -141,5 +187,43 @@ describe('loadCliConfig', () => {
 
 		expect(config.rootDir).toBe(otherRootDir);
 		expect(config.initialized).toBe(true);
+	});
+
+	it('loads provider config from the project .env file by default', () => {
+		const rootDir = createTempRoot();
+		initProject({ rootDir });
+		writeFileSync(
+			path.join(rootDir, '.env'),
+			'OPENROUTER_API_KEY=from-dotenv\nOPENROUTER_MODEL=openai/gpt-5\n',
+			'utf8',
+		);
+
+		const config = loadCliConfig(rootDir);
+
+		expect(config.providerConfigs).toMatchObject({
+			openrouter: {
+				apiKey: 'from-dotenv',
+				defaultModel: 'openai/gpt-5',
+			},
+		});
+	});
+
+	it('prefers exported env vars over values from the project .env file', () => {
+		const rootDir = createTempRoot();
+		initProject({ rootDir });
+		writeFileSync(
+			path.join(rootDir, '.env'),
+			'OPENROUTER_API_KEY=from-dotenv\n',
+			'utf8',
+		);
+		process.env.OPENROUTER_API_KEY = 'from-shell';
+
+		const config = loadCliConfig(rootDir);
+
+		expect(config.providerConfigs).toMatchObject({
+			openrouter: {
+				apiKey: 'from-shell',
+			},
+		});
 	});
 });

@@ -848,6 +848,83 @@ steps:
 		db.close();
 	});
 
+	it('executes on_failure notify steps after a workflow failure', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.failed.notify
+  version: 1
+on_failure:
+  - id: notify.failure
+    kind: notify
+    channel: stdout
+    message: "failed step={{ artifacts.failure.step_id }} message={{ artifacts.failure.message }}"
+steps:
+  - id: explode
+    kind: exec
+    command: "false"
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.failed.notify',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.failed.notify',
+			{},
+			{
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		const claimedRun = claimNextRun(db, 'worker-4b', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
+
+		const logMock = vi.fn();
+
+		await expect(
+			executeRun(
+				queuedRun.id,
+				{
+					claimEpoch: claimedRun?.claim_epoch ?? 1,
+					workerId: 'worker-4b',
+				},
+				{
+					db,
+					executors: new ExecutorRegistry([
+						new ThrowingExecExecutor(),
+						new NotifyExecutor({ log: logMock }),
+					]),
+					rootDir,
+				},
+			),
+		).rejects.toThrow('boom:explode');
+
+		expect(logMock).toHaveBeenCalledWith(
+			`"[ergon-flow] workflow=test.failed.notify run=${queuedRun.id} step=notify.failure channel=stdout\\nfailed step=explode message=boom:explode"`,
+		);
+
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(2);
+		expect(stepRuns[0]?.step_id).toBe('explode');
+		expect(stepRuns[0]?.status).toBe('failed');
+		expect(stepRuns[1]?.step_id).toBe('notify.failure');
+		expect(stepRuns[1]?.status).toBe('succeeded');
+
+		db.close();
+	});
+
 	it('rejects workflow source_path that escapes the workspace root', async () => {
 		const rootDir = createTempRoot();
 		const db = openStorageDb({

@@ -123,6 +123,7 @@ export interface ArtifactDeclaration {
 export interface WorkflowTemplate {
 	artifacts?: Record<string, ArtifactDeclaration>;
 	inputs?: Record<string, InputSpec | InputType>;
+	on_failure?: NotifyStepDefinition[];
 	outputs?: Record<string, string>;
 	steps: StepDefinition[];
 	workflow: WorkflowMetadata;

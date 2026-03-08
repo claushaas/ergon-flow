@@ -201,7 +201,7 @@ Current CLI commands:
 - `template list`
 - `workflow list`
 - `run`
-- `run-status`
+- `run status`
 - `worker start`
 - `approve`
 - `cancel`
@@ -225,7 +225,7 @@ Bootstrap and root-discovery rules:
 - if no `.ergon/` exists, the current directory is treated as an uninitialized
   location
 - `template list` may read from the embedded package library before init
-- `workflow list`, `run`, `run-status`, `worker start`, `approve` and `cancel`
+- `workflow list`, `run`, `run status`, `worker start`, `approve` and `cancel`
   require `ergon init`
 
 ## Explicit Non-Goals for v0.1.2

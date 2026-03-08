@@ -7,7 +7,11 @@ import {
 import { runCancelCommand } from './commands/cancel.js';
 import { runInitCommand } from './commands/init.js';
 import { runLibrarySyncCommand } from './commands/library.js';
-import { runRunCommand, runRunStatusCommand } from './commands/run.js';
+import {
+	runRunCommand,
+	runRunListCommand,
+	runRunStatusCommand,
+} from './commands/run.js';
 import { runTemplateListCommand } from './commands/template.js';
 import { parseWorkerCommandArgs, runWorkerCommand } from './commands/worker.js';
 import { runWorkflowListCommand } from './commands/workflow.js';
@@ -25,6 +29,23 @@ function readFlagValue(argv: string[], flagName: string): string | undefined {
 	}
 
 	return value;
+}
+
+function readNumericFlagValue(
+	argv: string[],
+	flagName: string,
+): number | undefined {
+	const value = readFlagValue(argv, flagName);
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed)) {
+		throw new Error(`Invalid numeric value for ${flagName}: ${value}`);
+	}
+
+	return parsed;
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -72,6 +93,19 @@ async function main(argv: string[]): Promise<void> {
 		runCancelCommand(subcommand);
 		return;
 	}
+	if (command === 'run' && subcommand === 'list') {
+		runRunListCommand({
+			limit: readNumericFlagValue(rest, '--limit'),
+			offset: readNumericFlagValue(rest, '--offset'),
+			status: readFlagValue(rest, '--status'),
+			workflowId: readFlagValue(rest, '--workflow'),
+		});
+		return;
+	}
+	if (command === 'run' && subcommand === 'status' && rest[0]) {
+		runRunStatusCommand(rest[0]);
+		return;
+	}
 	if (command === 'run' && subcommand) {
 		const inputsIndex = rest.indexOf('--inputs');
 		runRunCommand(subcommand, {
@@ -82,11 +116,6 @@ async function main(argv: string[]): Promise<void> {
 		});
 		return;
 	}
-	if (command === 'run-status' && subcommand) {
-		runRunStatusCommand(subcommand);
-		return;
-	}
-
 	throw new Error(
 		`Unsupported command: ${[command, subcommand].filter(Boolean).join(' ') || '(empty)'}`,
 	);

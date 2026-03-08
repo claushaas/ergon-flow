@@ -19,6 +19,7 @@ Required sections:
 Optional sections:
 
 - `inputs`
+- `on_failure`
 - `outputs`
 
 Example:
@@ -78,6 +79,32 @@ Runtime behavior:
 - unknown inputs are rejected
 - missing required inputs are rejected
 - input values are type-checked before `createRun(...)`
+
+## Failure Hooks
+
+Templates may define `on_failure` as a list of steps that run after the
+workflow has already been marked `failed`.
+
+Current support:
+
+- only `notify` steps are supported inside `on_failure`
+
+Runtime behavior:
+
+- the original failing step still determines the workflow error and final status
+- `on_failure` runs on a best-effort basis after the run becomes `failed`
+- `on_failure` step attempts are persisted in `step_runs`
+- failures inside `on_failure` do not replace the original workflow error
+
+Failure context is exposed through a synthetic artifact:
+
+- `artifacts.failure.code`
+- `artifacts.failure.message`
+- `artifacts.failure.step_id`
+- `artifacts.failure.run_id`
+- `artifacts.failure.workflow_id`
+- `artifacts.failure.workflow_version`
+- `artifacts.failure.detail`
 
 ## Step Ordering
 

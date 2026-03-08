@@ -8,6 +8,7 @@ import {
 	createRun,
 	getRun,
 	getWorkflow,
+	listRuns,
 	listStepRuns,
 	openStorageDb,
 	registerWorkflow,
@@ -30,6 +31,15 @@ export interface RunCommandOptions {
 export interface RunStatusCommandOptions {
 	dbPath?: string;
 	rootDir?: string;
+}
+
+export interface RunListCommandOptions {
+	dbPath?: string;
+	limit?: number;
+	offset?: number;
+	rootDir?: string;
+	status?: string;
+	workflowId?: string;
 }
 
 function resolveWorkflowTemplatePath(
@@ -122,7 +132,7 @@ export function getRunStatus(
 	stepRuns: ReturnType<typeof listStepRuns>;
 } {
 	const config = loadCliConfig(commandOptions.rootDir);
-	assertInitializedProject(config, 'run-status');
+	assertInitializedProject(config, 'run status');
 	const db = openStorageDb({
 		dbPath: commandOptions.dbPath ?? config.dbPath,
 	});
@@ -142,6 +152,32 @@ export function getRunStatus(
 	}
 }
 
+export function listWorkflowRuns(commandOptions: RunListCommandOptions = {}) {
+	const config = loadCliConfig(commandOptions.rootDir);
+	assertInitializedProject(config, 'run list');
+	const db = openStorageDb({
+		dbPath: commandOptions.dbPath ?? config.dbPath,
+	});
+
+	try {
+		return listRuns(db, {
+			limit: commandOptions.limit,
+			offset: commandOptions.offset,
+			status: commandOptions.status as
+				| 'canceled'
+				| 'failed'
+				| 'queued'
+				| 'running'
+				| 'succeeded'
+				| 'waiting_manual'
+				| undefined,
+			workflowId: commandOptions.workflowId,
+		});
+	} finally {
+		db.close();
+	}
+}
+
 export function runRunCommand(
 	workflowId: string,
 	commandOptions: RunCommandOptions = {},
@@ -154,4 +190,10 @@ export function runRunStatusCommand(
 	commandOptions: RunStatusCommandOptions = {},
 ): void {
 	printJson(getRunStatus(runId, commandOptions));
+}
+
+export function runRunListCommand(
+	commandOptions: RunListCommandOptions = {},
+): void {
+	printJson(listWorkflowRuns(commandOptions));
 }

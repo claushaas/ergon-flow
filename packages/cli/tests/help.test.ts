@@ -8,6 +8,8 @@ describe('CLI help and version surface', () => {
 		expect(helpText).toContain('pnpm add -g @claushaas/ergon-cli');
 		expect(helpText).toContain('ergon init');
 		expect(helpText).toContain('ergon library sync');
+		expect(helpText).toContain('ergon run list');
+		expect(helpText).toContain('ergon run status');
 		expect(helpText).toContain(
 			'Stateful commands require an initialized .ergon project.',
 		);
