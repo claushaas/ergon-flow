@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Version Bump"
+  short_description: "Prepare Ergon Flow version bumps"
+  default_prompt: "Use $release-version-bump to prepare this repository for the next Ergon Flow release version."

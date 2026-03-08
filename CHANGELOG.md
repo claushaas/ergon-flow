@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [0.1.4] - 2026-03-08
+
+### Added
+
+- `agent.smoke`, a minimal workflow to validate agent, notify and exec steps
+  without changing repository dependencies
+
+### Changed
+
+- worker cleanup now stops heartbeat and lease renewal loops cleanly after a
+  run terminates
+- release docs and CLI smoke assertions now track `v0.1.4`
+
 ## [0.1.3] - 2026-03-08
 
 ### Added

@@ -302,8 +302,12 @@ function startHeartbeatLoop(
 		metadata?: Record<string, unknown>;
 		pid: number;
 	},
-): NodeJS.Timeout {
+): { stop: () => void } {
+	let stopped = false;
 	const timer = setInterval(() => {
+		if (stopped) {
+			return;
+		}
 		heartbeatWorker(options.db, {
 			hostname: options.hostname,
 			id: options.workerId,
@@ -312,7 +316,12 @@ function startHeartbeatLoop(
 		});
 	}, options.heartbeatIntervalMs);
 	timer.unref?.();
-	return timer;
+	return {
+		stop: () => {
+			stopped = true;
+			clearInterval(timer);
+		},
+	};
 }
 
 function startLeaseRenewalLoop(
@@ -321,15 +330,19 @@ function startLeaseRenewalLoop(
 	workerId: string,
 	leaseRenewIntervalMs: number,
 	leaseDurationMs: number,
-): NodeJS.Timeout {
+): { stop: () => void } {
 	let renewing = false;
-	const timer = setInterval(async () => {
-		if (renewing) {
+	let stopped = false;
+	const timer = setInterval(() => {
+		if (stopped || renewing) {
 			return;
 		}
 
 		renewing = true;
 		try {
+			if (stopped) {
+				return;
+			}
 			const renewedRun = renewLease(
 				db,
 				run.id,
@@ -359,7 +372,12 @@ function startLeaseRenewalLoop(
 		}
 	}, leaseRenewIntervalMs);
 	timer.unref?.();
-	return timer;
+	return {
+		stop: () => {
+			stopped = true;
+			clearInterval(timer);
+		},
+	};
 }
 
 async function executeClaimedRun(
@@ -394,7 +412,7 @@ async function executeClaimedRun(
 		},
 	);
 
-	const renewalTimer = startLeaseRenewalLoop(
+	const renewalLoop = startLeaseRenewalLoop(
 		options.db,
 		run,
 		options.workerId,
@@ -448,7 +466,7 @@ async function executeClaimedRun(
 
 		throw error;
 	} finally {
-		clearInterval(renewalTimer);
+		renewalLoop.stop();
 	}
 }
 
@@ -486,7 +504,7 @@ export async function startWorker(
 		pid,
 	});
 
-	const heartbeatTimer = startHeartbeatLoop({
+	const heartbeatLoop = startHeartbeatLoop({
 		db: options.db,
 		heartbeatIntervalMs,
 		hostname,
@@ -532,7 +550,7 @@ export async function startWorker(
 			throw error;
 		}
 	} finally {
-		clearInterval(heartbeatTimer);
+		heartbeatLoop.stop();
 	}
 
 	return {
