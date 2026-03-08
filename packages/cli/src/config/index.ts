@@ -150,7 +150,10 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 	const mergedEnv = {
 		...loadProjectEnvValues(project.rootDir, projectMetadata),
 		...Object.fromEntries(
-			Object.entries(process.env).map(([key, value]) => [key, value ?? undefined]),
+			Object.entries(process.env).map(([key, value]) => [
+				key,
+				value ?? undefined,
+			]),
 		),
 	};
 	const ergonDbPath = readStringValue(mergedEnv, 'ERGON_DB_PATH');

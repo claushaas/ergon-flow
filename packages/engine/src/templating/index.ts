@@ -258,7 +258,9 @@ export function normalizeTemplate(rawTemplate: unknown): WorkflowTemplate {
 	};
 }
 
-function normalizeOnFailure(rawOnFailure: unknown): NotifyStepDefinition[] | undefined {
+function normalizeOnFailure(
+	rawOnFailure: unknown,
+): NotifyStepDefinition[] | undefined {
 	if (!Array.isArray(rawOnFailure)) {
 		return undefined;
 	}
@@ -269,14 +271,20 @@ function normalizeOnFailure(rawOnFailure: unknown): NotifyStepDefinition[] | und
 			if (
 				!step ||
 				typeof step.id !== 'string' ||
-				typeof step.kind !== 'string'
+				step.kind !== 'notify' ||
+				typeof step.channel !== 'string' ||
+				typeof step.message !== 'string'
 			) {
 				return null;
 			}
 
 			return {
 				...step,
-			} as NotifyStepDefinition;
+				channel: step.channel,
+				id: step.id,
+				kind: 'notify',
+				message: step.message,
+			} satisfies NotifyStepDefinition;
 		})
 		.filter((step): step is NotifyStepDefinition => step !== null);
 

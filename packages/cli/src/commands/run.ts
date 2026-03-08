@@ -152,9 +152,7 @@ export function getRunStatus(
 	}
 }
 
-export function listWorkflowRuns(
-	commandOptions: RunListCommandOptions = {},
-) {
+export function listWorkflowRuns(commandOptions: RunListCommandOptions = {}) {
 	const config = loadCliConfig(commandOptions.rootDir);
 	assertInitializedProject(config, 'run list');
 	const db = openStorageDb({

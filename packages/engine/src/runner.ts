@@ -34,10 +34,10 @@ import {
 	markRunWaitingManual,
 	type RunClaim,
 	type StepRunRow,
-	type WorkflowRunRow,
 	stepAttemptDir,
 	updateRunCursor,
 	updateStepRunStatus,
+	type WorkflowRunRow,
 	withRunClaim,
 } from '@claushaas/ergon-storage';
 import type {
@@ -669,18 +669,16 @@ function buildFailureArtifact(run: WorkflowRunRow): FailureArtifactPayload {
 	};
 }
 
-async function executeOnFailureSteps(
-	options: {
-		artifactBaseDir: string;
-		db: DatabaseSync;
-		executors: ExecutorRegistry;
-		inputs: Record<string, unknown>;
-		run: WorkflowRunRow;
-		state: ResolvedRunState;
-		template: WorkflowTemplate;
-		workerId: string;
-	},
-): Promise<void> {
+async function executeOnFailureSteps(options: {
+	artifactBaseDir: string;
+	db: DatabaseSync;
+	executors: ExecutorRegistry;
+	inputs: Record<string, unknown>;
+	run: WorkflowRunRow;
+	state: ResolvedRunState;
+	template: WorkflowTemplate;
+	workerId: string;
+}): Promise<void> {
 	const steps = options.template.on_failure ?? [];
 	if (steps.length === 0) {
 		return;

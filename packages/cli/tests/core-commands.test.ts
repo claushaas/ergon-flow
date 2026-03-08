@@ -197,7 +197,11 @@ steps:
 		const runB = scheduleRun('code.list', { dbPath, rootDir });
 		expect(runA.id).not.toBe(runB.id);
 
-		const allRuns = listWorkflowRuns({ dbPath, rootDir, workflowId: 'code.list' });
+		const allRuns = listWorkflowRuns({
+			dbPath,
+			rootDir,
+			workflowId: 'code.list',
+		});
 		expect(allRuns).toHaveLength(2);
 		expect(allRuns.every((run) => run.workflow_id === 'code.list')).toBe(true);
 
