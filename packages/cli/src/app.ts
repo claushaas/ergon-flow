@@ -60,6 +60,7 @@ export async function runCli(argv: string[]): Promise<void> {
 	}
 	if (command === 'init') {
 		runInitCommand({
+			noLibrary: argv.slice(1).includes('--no-library'),
 			rootDir: readFlagValue(argv.slice(1), '--root'),
 		});
 		return;
@@ -70,7 +71,9 @@ export async function runCli(argv: string[]): Promise<void> {
 	}
 	if (command === 'library' && subcommand === 'sync') {
 		runLibrarySyncCommand({
+			detach: rest.includes('--detach'),
 			force: rest.includes('--force'),
+			reattach: rest.includes('--reattach'),
 			rootDir: readFlagValue(rest, '--root'),
 		});
 		return;

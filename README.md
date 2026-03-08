@@ -87,6 +87,13 @@ ergon --help
 ergon --version
 ```
 
+To initialize a detached project without importing the embedded library:
+
+```bash
+cd /path/to/your/repo
+ergon init --no-library
+```
+
 This creates:
 
 ```text
@@ -96,9 +103,11 @@ This creates:
   library/
 ```
 
-The embedded `library/` bundled with the CLI is copied into
-`./.ergon/library/`. After initialization, the CLI resolves workflows from the
-nearest ancestor `.ergon/library/workflows`.
+By default, the embedded `library/` bundled with the CLI is copied into
+`./.ergon/library/`. If you initialize with `--no-library`, the directory is
+created but left empty and the project starts in detached mode. After
+initialization, the CLI resolves workflows from the nearest ancestor
+`.ergon/library/workflows`.
 
 For repository development, run the full local gate:
 
@@ -122,6 +131,64 @@ List bundled templates and then register workflows inside an initialized project
 ergon template list
 ergon workflow list
 ```
+
+## Updating
+
+When updating Ergon Flow in a real repository, treat the CLI binary and the
+project-local library as two separate things:
+
+- the global CLI binary is updated with `pnpm add -g`
+- the repository-local managed assets are updated with `ergon library sync`
+
+Recommended update flow:
+
+```bash
+pnpm add -g @claushaas/ergon-cli@latest
+cd /path/to/your/repo
+ergon library sync
+ergon --version
+```
+
+If the repository is intentionally detached from the embedded library, a plain
+`ergon library sync` fails clearly. Reattach first:
+
+```bash
+ergon library sync --reattach
+```
+
+If you want to force the repository-local managed library files to match the
+new CLI version exactly:
+
+```bash
+ergon library sync --force
+```
+
+Important behavior:
+
+- `ergon library sync` updates managed files that are unchanged locally and
+  reports locally edited managed files as conflicts
+- `ergon library sync --force` overwrites locally modified managed files in
+  `./.ergon/library`
+- `ergon library sync --detach` keeps the current files on disk but stops
+  treating them as managed by the CLI
+- `ergon library sync --reattach` resumes managed updates and rebuilds the
+  managed file metadata
+- custom files that do not exist in the embedded library are not removed by
+  `library sync`, even with `--force`
+
+Recommended practice for customized workflows:
+
+- do not edit the built-in workflow files in place if you want to keep local
+  changes across upgrades
+- copy a built-in workflow to a new file and new workflow id, then customize
+  that copy
+
+Configuration metadata:
+
+- `./.ergon/config.json` stores `cli_version`, `library_mode`, and, when
+  managed, `library_version`
+- these values are updated automatically by `ergon library sync`
+- users should not edit `cli_version` manually
 
 ## Running a Real Worker
 
@@ -172,7 +239,7 @@ Provider prerequisites:
 
 Current commands and common examples:
 
-- `ergon init [--root <path>]`
+- `ergon init [--root <path>] [--no-library]`
   - Initialize Ergon Flow in the current repository:
 
     ```bash
@@ -185,7 +252,13 @@ Current commands and common examples:
     ergon init --root /path/to/repo
     ```
 
-- `ergon library sync [--force] [--root <path>]`
+  - Initialize without copying the embedded library:
+
+    ```bash
+    ergon init --no-library
+    ```
+
+- `ergon library sync [--force] [--root <path>] [--detach] [--reattach]`
   - Refresh the project-local embedded library:
 
     ```bash
@@ -202,6 +275,19 @@ Current commands and common examples:
 
     ```bash
     ergon library sync --root /path/to/repo
+    ```
+
+  - Detach the project from managed library updates while keeping the current
+    files on disk:
+
+    ```bash
+    ergon library sync --detach
+    ```
+
+  - Reattach a detached project and resume managed library updates:
+
+    ```bash
+    ergon library sync --reattach
     ```
 
 - `ergon skill install [skill_id] [--path <dir>] [--root <path>]`

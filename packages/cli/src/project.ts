@@ -16,13 +16,16 @@ const ERGON_CONFIG_FILE_NAME = 'config.json';
 const ERGON_DB_RELATIVE_PATH = path.join('storage', 'ergon.db');
 const CONFIG_FORMAT_VERSION = 1;
 
+export type ProjectLibraryMode = 'detached' | 'managed';
+
 export interface ProjectLibraryMetadata {
 	cli_version: string;
 	env_file?: string;
 	format_version: number;
 	initialized_at: string;
+	library_mode: ProjectLibraryMode;
 	library_files: Record<string, string>;
-	library_version: string;
+	library_version?: string;
 }
 
 export interface ProjectPaths {
@@ -39,11 +42,14 @@ export interface ProjectPaths {
 }
 
 export interface InitializeProjectOptions {
+	noLibrary?: boolean;
 	rootDir: string;
 }
 
 export interface SyncLibraryOptions {
+	detach?: boolean;
 	force?: boolean;
+	reattach?: boolean;
 	rootDir: string;
 }
 
@@ -51,6 +57,7 @@ export interface SyncLibrarySummary {
 	added: string[];
 	conflicted: string[];
 	force: boolean;
+	libraryMode: ProjectLibraryMode;
 	rootDir: string;
 	skipped: string[];
 	updated: string[];
@@ -176,10 +183,24 @@ function readProjectLibraryMetadata(
 		typeof parsed.format_version !== 'number' ||
 		typeof parsed.initialized_at !== 'string' ||
 		typeof parsed.cli_version !== 'string' ||
-		typeof parsed.library_version !== 'string' ||
 		typeof parsed.library_files !== 'object' ||
 		parsed.library_files === null ||
 		Array.isArray(parsed.library_files)
+	) {
+		throw new Error(`Invalid Ergon project config at "${configPath}"`);
+	}
+
+	if (
+		parsed.library_mode !== undefined &&
+		parsed.library_mode !== 'detached' &&
+		parsed.library_mode !== 'managed'
+	) {
+		throw new Error(`Invalid Ergon project config at "${configPath}"`);
+	}
+
+	if (
+		parsed.library_version !== undefined &&
+		typeof parsed.library_version !== 'string'
 	) {
 		throw new Error(`Invalid Ergon project config at "${configPath}"`);
 	}
@@ -198,7 +219,12 @@ function readProjectLibraryMetadata(
 					typeof relativePath === 'string' && typeof hash === 'string',
 			),
 		),
-		library_version: parsed.library_version,
+		library_mode: parsed.library_mode ?? 'managed',
+		library_version:
+			typeof parsed.library_version === 'string' &&
+			parsed.library_version.length > 0
+				? parsed.library_version
+				: undefined,
 	};
 }
 
@@ -213,7 +239,10 @@ function writeProjectLibraryMetadata(
 	);
 }
 
-function buildLibraryMetadata(libraryDir: string): ProjectLibraryMetadata {
+function buildLibraryMetadata(
+	libraryDir: string,
+	mode: ProjectLibraryMode,
+): ProjectLibraryMetadata {
 	const cliVersion = getCliVersion();
 	return {
 		cli_version: cliVersion,
@@ -226,8 +255,18 @@ function buildLibraryMetadata(libraryDir: string): ProjectLibraryMetadata {
 				hashFile(path.join(libraryDir, relativePath)),
 			]),
 		),
-		library_version: cliVersion,
+		library_mode: mode,
+		...(mode === 'managed' ? { library_version: cliVersion } : {}),
 	};
+}
+
+function copyEmbeddedLibrary(project: ProjectPaths): void {
+	for (const relativePath of listFilesRecursive(project.embeddedLibraryDir)) {
+		const sourcePath = path.join(project.embeddedLibraryDir, relativePath);
+		const targetPath = path.join(project.libraryDir, relativePath);
+		mkdirSync(path.dirname(targetPath), { recursive: true });
+		copyFileSync(sourcePath, targetPath);
+	}
 }
 
 export function resolveProjectPaths(
@@ -283,14 +322,14 @@ export function initializeProject(
 	mkdirSync(project.storageDir, { recursive: true });
 	mkdirSync(project.libraryDir, { recursive: true });
 
-	for (const relativePath of listFilesRecursive(project.embeddedLibraryDir)) {
-		const sourcePath = path.join(project.embeddedLibraryDir, relativePath);
-		const targetPath = path.join(project.libraryDir, relativePath);
-		mkdirSync(path.dirname(targetPath), { recursive: true });
-		copyFileSync(sourcePath, targetPath);
+	if (!options.noLibrary) {
+		copyEmbeddedLibrary(project);
 	}
 
-	const metadata = buildLibraryMetadata(project.libraryDir);
+	const metadata = buildLibraryMetadata(
+		project.libraryDir,
+		options.noLibrary ? 'detached' : 'managed',
+	);
 	writeProjectLibraryMetadata(project.configPath, metadata);
 	return metadata;
 }
@@ -298,6 +337,12 @@ export function initializeProject(
 export function syncProjectLibrary(
 	options: SyncLibraryOptions,
 ): SyncLibrarySummary {
+	if (options.detach && options.reattach) {
+		throw new Error(
+			'Cannot use "--detach" and "--reattach" together on "ergon library sync".',
+		);
+	}
+
 	const project = assertInitializedProject(
 		resolveProjectPaths(options.rootDir, options.rootDir),
 		'library sync',
@@ -313,17 +358,47 @@ export function syncProjectLibrary(
 		added: [],
 		conflicted: [],
 		force: options.force === true,
+		libraryMode: previousMetadata.library_mode,
 		rootDir: project.rootDir,
 		skipped: [],
 		updated: [],
 	};
-	const nextManagedFiles = { ...previousMetadata.library_files };
+
+	if (options.detach) {
+		writeProjectLibraryMetadata(project.configPath, {
+			cli_version: getCliVersion(),
+			env_file: previousMetadata.env_file,
+			format_version: previousMetadata.format_version,
+			initialized_at: previousMetadata.initialized_at,
+			library_files: {},
+			library_mode: 'detached',
+			...(previousMetadata.library_version
+				? { library_version: previousMetadata.library_version }
+				: {}),
+		});
+
+		return {
+			...summary,
+			libraryMode: 'detached',
+		};
+	}
+
+	if (previousMetadata.library_mode === 'detached' && !options.reattach) {
+		throw new Error(
+			`Project at "${project.rootDir}" is detached from the embedded library. Use "ergon library sync --reattach" to resume managed library updates.`,
+		);
+	}
+
+	const nextManagedFiles =
+		previousMetadata.library_mode === 'managed'
+			? { ...previousMetadata.library_files }
+			: {};
 
 	for (const relativePath of listFilesRecursive(project.embeddedLibraryDir)) {
 		const sourcePath = path.join(project.embeddedLibraryDir, relativePath);
 		const targetPath = path.join(project.libraryDir, relativePath);
 		const sourceHash = hashFile(sourcePath);
-		const existingManagedHash = previousMetadata.library_files[relativePath];
+		const existingManagedHash = nextManagedFiles[relativePath];
 
 		if (!existsSync(targetPath)) {
 			mkdirSync(path.dirname(targetPath), { recursive: true });
@@ -369,8 +444,12 @@ export function syncProjectLibrary(
 		format_version: previousMetadata.format_version,
 		initialized_at: previousMetadata.initialized_at,
 		library_files: nextManagedFiles,
+		library_mode: 'managed',
 		library_version: getCliVersion(),
 	});
 
-	return summary;
+	return {
+		...summary,
+		libraryMode: 'managed',
+	};
 }

@@ -32,9 +32,10 @@ const REPO_ROOT = path.resolve(
 	'..',
 	'..',
 );
-const LIBRARY_DIR = path.join(REPO_ROOT, 'library');
-const AGENTS_DIR = path.join(LIBRARY_DIR, 'agents');
-const SCHEMAS_DIR = path.join(LIBRARY_DIR, 'schemas');
+const _LIBRARY_DIR = path.join(REPO_ROOT, 'library');
+const IDEAS_DIR = path.join(REPO_ROOT, 'docs', 'ideas');
+const AGENTS_DIR = path.join(IDEAS_DIR, 'agents');
+const SCHEMAS_DIR = path.join(IDEAS_DIR, 'schemas');
 
 function readJsonFile(filePath: string): unknown {
 	return JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
