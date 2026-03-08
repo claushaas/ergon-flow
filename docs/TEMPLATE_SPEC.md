@@ -312,7 +312,7 @@ The loader rejects templates that have:
 
 ## Current Limitations
 
-These are deliberate in `v0.1.3`:
+These are deliberate in `v0.1.4`:
 
 - no `steps.*` interpolation
 - no parallel DAG scheduling
