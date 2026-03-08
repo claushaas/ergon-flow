@@ -35,7 +35,7 @@ pnpm smoke:global-install
 The public release flow is tag-driven from `main`.
 
 1. merge the release candidate to `main`
-2. create and push a tag like `v0.1.2`
+2. create and push a tag like `v0.1.3`
 3. GitHub Actions validates the tag/version match and publishes packages in
    dependency order
 

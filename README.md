@@ -19,7 +19,7 @@ The runtime is designed around auditability:
 - every artifact is stored on disk and indexed in SQLite
 - every significant transition is appended to `events`
 
-## What v0.1.2 Includes
+## What v0.1.3 Includes
 
 The current release scope is pragmatic and explicit:
 
@@ -51,7 +51,7 @@ Supported providers:
 - `claude-code`
 - `openclaw`
 
-## What v0.1.2 Does Not Include
+## What v0.1.3 Does Not Include
 
 These repository assets exist, but they are not enforced by the runtime yet:
 
@@ -221,7 +221,7 @@ The repository treats these documents as source of truth:
 
 ## Release Flow
 
-Public releases are cut from `main` using Git tags such as `v0.1.2`.
+Public releases are cut from `main` using Git tags such as `v0.1.3`.
 
 Before tagging a release:
 
