@@ -32,6 +32,7 @@ export interface ProjectPaths {
 	configPath: string;
 	dbPath: string;
 	embeddedLibraryDir: string;
+	embeddedSkillsDir: string;
 	embeddedWorkflowsDir: string;
 	ergonDir: string;
 	initialized: boolean;
@@ -108,6 +109,24 @@ export function getEmbeddedLibraryDir(): string {
 
 	throw new Error(
 		`Embedded library is not available. Expected one of: ${candidates.join(', ')}`,
+	);
+}
+
+export function getEmbeddedSkillsDir(): string {
+	const packageRootDir = getPackageRootDir();
+	const candidates = [
+		path.join(packageRootDir, 'dist', 'skill'),
+		path.resolve(packageRootDir, '..', '..', 'skill'),
+	];
+
+	for (const candidate of candidates) {
+		if (existsSync(candidate) && statSync(candidate).isDirectory()) {
+			return candidate;
+		}
+	}
+
+	throw new Error(
+		`Embedded skills are not available. Expected one of: ${candidates.join(', ')}`,
 	);
 }
 
@@ -280,6 +299,7 @@ export function resolveProjectPaths(
 		configPath: path.join(ergonDir, ERGON_CONFIG_FILE_NAME),
 		dbPath: path.join(ergonDir, ERGON_DB_RELATIVE_PATH),
 		embeddedLibraryDir: getEmbeddedLibraryDir(),
+		embeddedSkillsDir: getEmbeddedSkillsDir(),
 		embeddedWorkflowsDir: path.join(getEmbeddedLibraryDir(), 'workflows'),
 		ergonDir,
 		initialized: existsSync(ergonDir),

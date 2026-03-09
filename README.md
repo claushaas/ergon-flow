@@ -291,13 +291,13 @@ Current commands and common examples:
     ```
 
 - `ergon skill install [skill_id] [--path <dir>] [--root <path>]`
-  - Install the only repo-distributed skill into `./skills/`:
+  - Install the bundled CLI skill into `./skills/`:
 
     ```bash
     ergon skill install
     ```
 
-  - Install a specific skill by id:
+  - Install a specific bundled skill by id:
 
     ```bash
     ergon skill install ergon-flow-expert
@@ -309,7 +309,7 @@ Current commands and common examples:
     ergon skill install ergon-flow-expert --path ./.codex/skills
     ```
 
-  - Install a skill from another repository root:
+  - Override the source repository during local development:
 
     ```bash
     ergon skill install ergon-flow-expert --root /path/to/repo

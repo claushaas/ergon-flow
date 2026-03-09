@@ -11,6 +11,7 @@ export interface CliConfig {
 	configPath: string;
 	dbPath: string;
 	embeddedLibraryDir: string;
+	embeddedSkillsDir: string;
 	embeddedWorkflowsDir: string;
 	ergonDir: string;
 	initialized: boolean;
@@ -178,6 +179,7 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 			ergonDbPath ?? '.ergon/storage/ergon.db',
 		),
 		embeddedLibraryDir: project.embeddedLibraryDir,
+		embeddedSkillsDir: project.embeddedSkillsDir,
 		embeddedWorkflowsDir: project.embeddedWorkflowsDir,
 		ergonDir: project.ergonDir,
 		initialized: project.initialized,

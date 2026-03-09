@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { printJson } from '../output/format.js';
+import { getEmbeddedSkillsDir } from '../project.js';
 
 const SKILL_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 
@@ -55,28 +56,12 @@ function listAvailableSkillIds(rootDir: string): string[] {
 		.sort();
 }
 
-function findNearestSkillRoot(cwd: string): string {
-	let currentDir = path.resolve(cwd);
-
-	while (true) {
-		if (listAvailableSkillIds(currentDir).length > 0) {
-			return currentDir;
-		}
-
-		const parentDir = path.dirname(currentDir);
-		if (parentDir === currentDir) {
-			return path.resolve(cwd);
-		}
-		currentDir = parentDir;
-	}
-}
-
 function resolveSkillRoot(rootDir: string | undefined): string {
 	if (rootDir) {
 		return path.resolve(rootDir);
 	}
 
-	return findNearestSkillRoot(process.cwd());
+	return path.dirname(getEmbeddedSkillsDir());
 }
 
 function resolveDestinationDir(destinationDir: string | undefined): string {
