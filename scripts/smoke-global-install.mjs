@@ -134,8 +134,8 @@ try {
 	});
 
 	const reportedVersion = runErgon(['--version'], projectRoot, installEnv);
-	if (reportedVersion !== '0.2.0') {
-		fail(`Expected ergon --version to report 0.2.0, received ${reportedVersion}`);
+	if (reportedVersion !== '0.2.1') {
+		fail(`Expected ergon --version to report 0.2.1, received ${reportedVersion}`);
 	}
 
 	const helpText = runErgon(['--help'], projectRoot, installEnv);
@@ -155,7 +155,7 @@ try {
 		fail(`Expected init to create ${configPath}`);
 	}
 	const config = JSON.parse(readFileSync(configPath, 'utf8'));
-	if (config.cli_version !== '0.2.0' || config.library_version !== '0.2.0') {
+	if (config.cli_version !== '0.2.1' || config.library_version !== '0.2.1') {
 		fail(`Unexpected project config metadata: ${JSON.stringify(config)}`);
 	}
 

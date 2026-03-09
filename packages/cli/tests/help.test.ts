@@ -21,6 +21,6 @@ describe('CLI help and version surface', () => {
 	});
 
 	it('renders the CLI version from package metadata', () => {
-		expect(getCliVersionText()).toBe('0.2.0');
+		expect(getCliVersionText()).toBe('0.2.1');
 	});
 });

@@ -136,32 +136,35 @@ steps:
 		).toBe(true);
 	});
 
-	it('installs a repo-distributed skill into the default ./skills directory', () => {
+	it('installs the embedded CLI skill into the default ./skills directory', () => {
 		const rootDir = createTempRoot();
-		const nestedDir = path.join(rootDir, 'packages', 'cli');
+		const nestedDir = path.join(rootDir, 'consumer-repo');
 		mkdirSync(nestedDir, { recursive: true });
-		writeSkill(rootDir, 'ergon-flow-expert');
 
 		const previousCwd = process.cwd();
 		process.chdir(nestedDir);
 		try {
 			const result = installSkill(undefined);
 
-			expect(realpathSync(result.rootDir)).toBe(realpathSync(rootDir));
 			expect(result.skillId).toBe('ergon-flow-expert');
 			expect(realpathSync(result.destinationPath)).toBe(
 				realpathSync(path.join(nestedDir, 'skills', 'ergon-flow-expert')),
 			);
-			expect(result.filesCopied).toBe(2);
+			expect(result.filesCopied).toBeGreaterThan(2);
 			expect(
 				readFileSync(path.join(result.destinationPath, 'SKILL.md'), 'utf8'),
-			).toContain('name: ergon-flow-expert');
+			).toContain('ergon-flow-expert');
+			expect(
+				existsSync(
+					path.join(result.destinationPath, 'references', 'ergon-cli.md'),
+				),
+			).toBe(true);
 		} finally {
 			process.chdir(previousCwd);
 		}
 	});
 
-	it('requires an explicit skill id when multiple repo-distributed skills exist', () => {
+	it('requires an explicit skill id when multiple source skills exist under --root', () => {
 		const rootDir = createTempRoot();
 		writeSkill(rootDir, 'ergon-flow-expert');
 		writeSkill(rootDir, 'release-version-bump');
@@ -171,7 +174,7 @@ steps:
 		);
 	});
 
-	it('fails clearly when the repository does not distribute any skills', () => {
+	it('fails clearly when --root points to a repository without distributable skills', () => {
 		const rootDir = createTempRoot();
 
 		expect(() => installSkill(undefined, { rootDir })).toThrow(
@@ -179,7 +182,7 @@ steps:
 		);
 	});
 
-	it('installs a skill into an explicit destination path', () => {
+	it('installs a skill from an explicit --root into an explicit destination path', () => {
 		const rootDir = createTempRoot();
 		const destinationDir = path.join(rootDir, '.codex', 'skills');
 		writeSkill(rootDir, 'ergon-flow-expert');
@@ -550,10 +553,10 @@ steps:
 		expect(result.configPath).toBe(configPath);
 		expect(result.libraryMode).toBe('managed');
 		expect(parsedConfig.format_version).toBe(1);
-		expect(parsedConfig.cli_version).toBe('0.2.0');
+		expect(parsedConfig.cli_version).toBe('0.2.1');
 		expect(parsedConfig.env_file).toBe('.env');
 		expect(parsedConfig.library_mode).toBe('managed');
-		expect(parsedConfig.library_version).toBe('0.2.0');
+		expect(parsedConfig.library_version).toBe('0.2.1');
 		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
 		expect(Object.keys(parsedConfig.library_files)).toContain(
 			'workflows/code.refactor.yaml',
@@ -630,7 +633,7 @@ steps:
 		expect(summary.updated).toContain('workflows/code.refactor.yaml');
 		expect(summary.libraryMode).toBe('managed');
 		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
-		expect(parsedConfig.library_version).toBe('0.2.0');
+		expect(parsedConfig.library_version).toBe('0.2.1');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);
@@ -663,7 +666,7 @@ steps:
 		expect(summary.libraryMode).toBe('detached');
 		expect(parsedConfig.library_mode).toBe('detached');
 		expect(parsedConfig.library_files).toEqual({});
-		expect(parsedConfig.library_version).toBe('0.2.0');
+		expect(parsedConfig.library_version).toBe('0.2.1');
 		expect(readFileSync(workflowPath, 'utf8')).toBe(beforeDetach);
 	});
 
@@ -677,7 +680,7 @@ steps:
 		expect(summary.libraryMode).toBe('managed');
 		expect(summary.added).toContain('workflows/code.refactor.yaml');
 		expect(parsedConfig.library_mode).toBe('managed');
-		expect(parsedConfig.library_version).toBe('0.2.0');
+		expect(parsedConfig.library_version).toBe('0.2.1');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);

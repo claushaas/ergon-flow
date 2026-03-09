@@ -24,6 +24,11 @@ Bootstrap:
   ./.ergon/storage/ergon.db. By default it also copies the embedded library
   into ./.ergon/library. Use "--no-library" to start detached.
 
+Skill installation:
+  "ergon skill install" copies bundled CLI skills into the current repository.
+  Use "--path" to choose the destination and "--root" only to override the
+  source repository during local development.
+
 Initialization rules:
   "template list", "--help", and "--version" work before initialization.
   Stateful commands require an initialized .ergon project.
