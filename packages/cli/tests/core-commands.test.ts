@@ -203,6 +203,38 @@ steps:
 		).toBe('# Guide\n');
 	});
 
+	it('overwrites an existing installed skill at the destination path', () => {
+		const rootDir = createTempRoot();
+		const destinationDir = path.join(rootDir, '.codex', 'skills');
+		const destinationPath = path.join(destinationDir, 'ergon-flow-expert');
+		writeSkill(rootDir, 'ergon-flow-expert');
+		mkdirSync(path.join(destinationPath, 'references'), { recursive: true });
+		writeFileSync(
+			path.join(destinationPath, 'stale.txt'),
+			'remove me\n',
+			'utf8',
+		);
+		writeFileSync(
+			path.join(destinationPath, 'references', 'guide.md'),
+			'# Old Guide\n',
+			'utf8',
+		);
+
+		const result = installSkill('ergon-flow-expert', {
+			destinationDir,
+			rootDir,
+		});
+
+		expect(result.destinationPath).toBe(destinationPath);
+		expect(existsSync(path.join(destinationPath, 'stale.txt'))).toBe(false);
+		expect(
+			readFileSync(
+				path.join(destinationPath, 'references', 'guide.md'),
+				'utf8',
+			),
+		).toBe('# Guide\n');
+	});
+
 	it('rejects top-level skill directories that are symbolic links', () => {
 		const rootDir = createTempRoot();
 		const externalSkillDir = path.join(rootDir, 'external-skill');

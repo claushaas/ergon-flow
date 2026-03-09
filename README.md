@@ -309,6 +309,9 @@ Current commands and common examples:
     ergon skill install ergon-flow-expert --path ./.codex/skills
     ```
 
+    If the skill already exists at the destination, Ergon replaces the old
+    installed copy with the bundled version.
+
   - Override the source repository during local development:
 
     ```bash

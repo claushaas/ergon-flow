@@ -4,6 +4,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	readdirSync,
+	rmSync,
 	statSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -158,9 +159,7 @@ export function installSkill(
 	const destinationPath = path.join(destinationDir, normalizedSkillId);
 
 	if (existsSync(destinationPath)) {
-		throw new Error(
-			`Skill destination already exists at "${destinationPath}". Remove it or choose another --path.`,
-		);
+		rmSync(destinationPath, { force: true, recursive: true });
 	}
 
 	const filesCopied = copyDirectoryRecursive(sourcePath, destinationPath);
