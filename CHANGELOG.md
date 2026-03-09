@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [0.2.2] - 2026-03-09
+
+### Fixed
+
+- CLI agent providers `codex`, `claude-code`, and `openclaw` now register with
+  their default commands even when no explicit `*_COMMAND` override is present
+- `ergon skill install` now replaces an existing installed skill in place so
+  bundled skill updates can be reapplied cleanly
+
 ## [0.2.1] - 2026-03-09
 
 ### Fixed

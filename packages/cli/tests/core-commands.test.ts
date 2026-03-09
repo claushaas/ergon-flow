@@ -184,23 +184,87 @@ steps:
 
 	it('installs a skill from an explicit --root into an explicit destination path', () => {
 		const rootDir = createTempRoot();
-		const destinationDir = path.join(rootDir, '.codex', 'skills');
+		const destinationDir = '.codex/skills';
 		writeSkill(rootDir, 'ergon-flow-expert');
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			const result = installSkill('ergon-flow-expert', {
+				destinationDir,
+				rootDir,
+			});
 
-		const result = installSkill('ergon-flow-expert', {
-			destinationDir,
+			expect(realpathSync(result.destinationPath)).toBe(
+				realpathSync(path.join(rootDir, destinationDir, 'ergon-flow-expert')),
+			);
+			expect(
+				readFileSync(
+					path.join(result.destinationPath, 'references', 'guide.md'),
+					'utf8',
+				),
+			).toBe('# Guide\n');
+		} finally {
+			process.chdir(previousCwd);
+		}
+	});
+
+	it('overwrites an existing installed skill at the destination path', () => {
+		const rootDir = createTempRoot();
+		const destinationDir = '.codex/skills';
+		const destinationPath = path.join(
 			rootDir,
-		});
-
-		expect(realpathSync(result.destinationPath)).toBe(
-			realpathSync(path.join(destinationDir, 'ergon-flow-expert')),
+			destinationDir,
+			'ergon-flow-expert',
 		);
-		expect(
-			readFileSync(
-				path.join(result.destinationPath, 'references', 'guide.md'),
-				'utf8',
-			),
-		).toBe('# Guide\n');
+		writeSkill(rootDir, 'ergon-flow-expert');
+		mkdirSync(path.join(destinationPath, 'references'), { recursive: true });
+		writeFileSync(
+			path.join(destinationPath, 'stale.txt'),
+			'remove me\n',
+			'utf8',
+		);
+		writeFileSync(
+			path.join(destinationPath, 'references', 'guide.md'),
+			'# Old Guide\n',
+			'utf8',
+		);
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			const result = installSkill('ergon-flow-expert', {
+				destinationDir,
+				rootDir,
+			});
+
+			expect(realpathSync(result.destinationPath)).toBe(
+				realpathSync(destinationPath),
+			);
+			expect(existsSync(path.join(destinationPath, 'stale.txt'))).toBe(false);
+			expect(
+				readFileSync(
+					path.join(destinationPath, 'references', 'guide.md'),
+					'utf8',
+				),
+			).toBe('# Guide\n');
+		} finally {
+			process.chdir(previousCwd);
+		}
+	});
+
+	it('rejects skill installation paths outside the current workspace', () => {
+		const rootDir = createTempRoot();
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			expect(() =>
+				installSkill(undefined, { destinationDir: '../outside' }),
+			).toThrow('Invalid skill install path: path escapes the workspace root');
+			expect(() =>
+				installSkill(undefined, { destinationDir: '/tmp/skills' }),
+			).toThrow('Invalid skill install path: absolute paths are not allowed');
+		} finally {
+			process.chdir(previousCwd);
+		}
 	});
 
 	it('rejects top-level skill directories that are symbolic links', () => {
@@ -225,7 +289,7 @@ steps:
 
 	it('rejects symbolic links found inside a skill directory', () => {
 		const rootDir = createTempRoot();
-		const destinationDir = path.join(rootDir, 'installed-skills');
+		const destinationDir = 'installed-skills';
 		writeSkill(rootDir, 'ergon-flow-expert');
 		symlinkSync(
 			path.join(rootDir, 'README.md'),
@@ -237,10 +301,15 @@ steps:
 				'linked.md',
 			),
 		);
-
-		expect(() =>
-			installSkill('ergon-flow-expert', { destinationDir, rootDir }),
-		).toThrow('contains a symbolic link');
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			expect(() =>
+				installSkill('ergon-flow-expert', { destinationDir, rootDir }),
+			).toThrow('contains a symbolic link');
+		} finally {
+			process.chdir(previousCwd);
+		}
 	});
 
 	it('syncs workflows into storage and lists them', () => {
@@ -553,10 +622,10 @@ steps:
 		expect(result.configPath).toBe(configPath);
 		expect(result.libraryMode).toBe('managed');
 		expect(parsedConfig.format_version).toBe(1);
-		expect(parsedConfig.cli_version).toBe('0.2.1');
+		expect(parsedConfig.cli_version).toBe('0.2.2');
 		expect(parsedConfig.env_file).toBe('.env');
 		expect(parsedConfig.library_mode).toBe('managed');
-		expect(parsedConfig.library_version).toBe('0.2.1');
+		expect(parsedConfig.library_version).toBe('0.2.2');
 		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
 		expect(Object.keys(parsedConfig.library_files)).toContain(
 			'workflows/code.refactor.yaml',
@@ -633,7 +702,7 @@ steps:
 		expect(summary.updated).toContain('workflows/code.refactor.yaml');
 		expect(summary.libraryMode).toBe('managed');
 		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
-		expect(parsedConfig.library_version).toBe('0.2.1');
+		expect(parsedConfig.library_version).toBe('0.2.2');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);
@@ -666,7 +735,7 @@ steps:
 		expect(summary.libraryMode).toBe('detached');
 		expect(parsedConfig.library_mode).toBe('detached');
 		expect(parsedConfig.library_files).toEqual({});
-		expect(parsedConfig.library_version).toBe('0.2.1');
+		expect(parsedConfig.library_version).toBe('0.2.2');
 		expect(readFileSync(workflowPath, 'utf8')).toBe(beforeDetach);
 	});
 
@@ -680,7 +749,7 @@ steps:
 		expect(summary.libraryMode).toBe('managed');
 		expect(summary.added).toContain('workflows/code.refactor.yaml');
 		expect(parsedConfig.library_mode).toBe('managed');
-		expect(parsedConfig.library_version).toBe('0.2.1');
+		expect(parsedConfig.library_version).toBe('0.2.2');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);

@@ -4,11 +4,13 @@ import {
 	lstatSync,
 	mkdirSync,
 	readdirSync,
+	rmSync,
 	statSync,
 } from 'node:fs';
 import path from 'node:path';
 import { printJson } from '../output/format.js';
 import { getEmbeddedSkillsDir } from '../project.js';
+import { resolvePathWithinBase } from '../utils.js';
 
 const SKILL_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 
@@ -69,7 +71,11 @@ function resolveDestinationDir(destinationDir: string | undefined): string {
 		return path.resolve(process.cwd(), 'skills');
 	}
 
-	return path.resolve(destinationDir);
+	return resolvePathWithinBase(
+		process.cwd(),
+		destinationDir,
+		'skill install path',
+	);
 }
 
 function copyDirectoryRecursive(sourceDir: string, targetDir: string): number {
@@ -158,9 +164,7 @@ export function installSkill(
 	const destinationPath = path.join(destinationDir, normalizedSkillId);
 
 	if (existsSync(destinationPath)) {
-		throw new Error(
-			`Skill destination already exists at "${destinationPath}". Remove it or choose another --path.`,
-		);
+		rmSync(destinationPath, { force: true, recursive: true });
 	}
 
 	const filesCopied = copyDirectoryRecursive(sourcePath, destinationPath);
