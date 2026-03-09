@@ -1,0 +1,128 @@
+workflow:
+  id: example.full
+  version: 1
+  description: "Full example mixing agent, artifact, condition, delay, exec, manual, notify, outputs, and on_failure."
+  author: "ergon-flow-expert"
+  tags: ["example", "full", "agent", "manual", "notify"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Repository path to inspect."
+    default: "."
+
+  publish_report:
+    type: boolean
+    description: "Whether to write the final report file."
+    default: true
+
+  report_file:
+    type: string
+    description: "Path to the generated report."
+    default: ".ergon/tmp/example-full/report.md"
+
+  notify:
+    type: object
+    description: "Notification settings."
+    default:
+      channel: "stdout"
+      target: ""
+      message_prefix: "[ergon-flow]"
+
+on_failure:
+  - id: notify.failure
+    kind: notify
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow failed: example.full
+
+      Failed step: {{ artifacts.failure.step_id }}
+      Error code: {{ artifacts.failure.code }}
+      Error message: {{ artifacts.failure.message }}
+
+steps:
+  - id: analyze
+    kind: agent
+    provider: openrouter
+    model: deepseek/deepseek-v3.2
+    output:
+      name: report
+      type: json
+    prompt: |
+      Return valid JSON with exactly these fields:
+      - title: string
+      - summary: string
+      - next_action: string
+
+      The repository path is {{ inputs.repo_path }}.
+      Keep the summary concise and practical.
+
+  - id: report.title
+    kind: artifact
+    input: report
+    operation: extract:title:report.title
+
+  - id: report.summary
+    kind: artifact
+    input: report
+    operation: extract:summary:report.summary
+
+  - id: should.publish
+    kind: condition
+    expression: "{{ inputs.publish_report }}"
+
+  - id: settle
+    kind: delay
+    duration_ms: 1000
+    depends_on:
+      - should.publish
+
+  - id: report.write
+    kind: exec
+    depends_on:
+      - should.publish
+      - settle
+    env:
+      OUTPUT_FILE: "{{ inputs.report_file }}"
+      REPORT_TITLE: "{{ artifacts.report.title }}"
+      REPORT_SUMMARY: "{{ artifacts.report.summary }}"
+    command: |
+      set -euo pipefail
+      mkdir -p "$(dirname "$OUTPUT_FILE")"
+      {
+        printf '# %s\n\n' "$REPORT_TITLE"
+        printf '%s\n' "$REPORT_SUMMARY"
+      } > "$OUTPUT_FILE"
+      printf 'wrote %s\n' "$OUTPUT_FILE"
+
+  - id: approve
+    kind: manual
+    message: |
+      Review the generated report before sending the completion notification.
+
+      Title:
+      {{ artifacts.report.title }}
+
+      Summary:
+      {{ artifacts.report.summary }}
+
+  - id: notify.complete
+    kind: notify
+    channel: "{{ inputs.notify.channel }}"
+    target: "{{ inputs.notify.target }}"
+    message: |
+      {{ inputs.notify.message_prefix }} Workflow completed: example.full
+
+      Report title:
+      {{ artifacts.report.title }}
+
+      Report file:
+      {{ inputs.report_file }}
+
+outputs:
+  report: artifacts.report
+  title: artifacts.report.title
+  summary: artifacts.report.summary
+  report_file: inputs.report_file
+  write_result: artifacts.report.write.result

@@ -21,6 +21,7 @@ describe('CLI agent clients (D3)', () => {
 
 		const controller = new AbortController();
 		const result = await client.run({
+			model: 'gpt-5-codex',
 			prompt: 'Review this patch',
 			provider: 'codex',
 			signal: controller.signal,
@@ -28,11 +29,38 @@ describe('CLI agent clients (D3)', () => {
 
 		expect(result.text).toBe('codex-result');
 		expect(spawnMock).toHaveBeenCalledWith({
-			args: [],
+			args: ['exec', '--model', 'gpt-5-codex'],
 			command: 'codex',
 			env: { CODEX_HOME: '/tmp/codex' },
 			input: 'Review this patch',
 			signal: controller.signal,
+		});
+	});
+
+	it('respects explicit Codex args without duplicating the model flag', async () => {
+		const spawnMock = vi.fn().mockResolvedValue({
+			code: 0,
+			signal: null,
+			stderr: '',
+			stdout: 'codex-result\n',
+		});
+		const client = new CodexAgentClient({
+			args: ['exec', '--model', 'configured-model'],
+			spawn: spawnMock,
+		});
+
+		await client.run({
+			model: 'step-model',
+			prompt: 'Review this patch',
+			provider: 'codex',
+		});
+
+		expect(spawnMock).toHaveBeenCalledWith({
+			args: ['exec', '--model', 'configured-model'],
+			command: 'codex',
+			env: undefined,
+			input: 'Review this patch',
+			signal: undefined,
 		});
 	});
 
@@ -53,23 +81,44 @@ describe('CLI agent clients (D3)', () => {
 				{ content: 'You are a reviewer.', role: 'system' },
 				{ content: 'Review this patch', role: 'user' },
 			],
+			model: 'sonnet',
 			provider: 'claude-code',
 			signal: controller.signal,
 		});
 
 		expect(spawnMock).toHaveBeenCalledWith({
-			args: [],
+			args: ['--print', '--model', 'sonnet'],
 			command: 'claude',
 			env: undefined,
-			input: JSON.stringify(
-				[
-					{ content: 'You are a reviewer.', role: 'system' },
-					{ content: 'Review this patch', role: 'user' },
-				],
-				null,
-				2,
-			),
+			input: 'SYSTEM:\nYou are a reviewer.\n\nUSER:\nReview this patch',
 			signal: controller.signal,
+		});
+	});
+
+	it('respects explicit Claude args without duplicating the model flag', async () => {
+		const spawnMock = vi.fn().mockResolvedValue({
+			code: 0,
+			signal: null,
+			stderr: '',
+			stdout: 'claude-result',
+		});
+		const client = new ClaudeCodeAgentClient({
+			args: ['--print', '--model', 'configured-sonnet'],
+			spawn: spawnMock,
+		});
+
+		await client.run({
+			model: 'step-model',
+			prompt: 'Review this patch',
+			provider: 'claude-code',
+		});
+
+		expect(spawnMock).toHaveBeenCalledWith({
+			args: ['--print', '--model', 'configured-sonnet'],
+			command: 'claude',
+			env: undefined,
+			input: 'Review this patch',
+			signal: undefined,
 		});
 	});
 

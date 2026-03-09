@@ -1,0 +1,41 @@
+workflow:
+  id: example.manual_approval
+  version: 1
+  description: "Pause for human approval before continuing."
+  author: "ergon-flow-expert"
+  tags: ["example", "manual", "approval"]
+
+inputs:
+  repo_path:
+    type: string
+    description: "Repository path used in the summary."
+    default: "."
+
+steps:
+  - id: summarize
+    kind: exec
+    env:
+      REPO_PATH: "{{ inputs.repo_path }}"
+    command: |
+      set -euo pipefail
+      printf 'Prepared change summary for %s\n' "$REPO_PATH"
+
+  - id: approve
+    kind: manual
+    message: |
+      Review the prepared summary before continuing.
+
+      Repository:
+      {{ inputs.repo_path }}
+
+      Summary:
+      {{ artifacts.summarize.stdout }}
+
+  - id: notify.approved
+    kind: notify
+    channel: stdout
+    message: |
+      Approval received for {{ inputs.repo_path }}.
+
+outputs:
+  summary: artifacts.summarize.stdout

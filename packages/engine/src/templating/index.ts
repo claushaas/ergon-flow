@@ -476,6 +476,7 @@ function getStepArtifactNames(step: StepDefinition): string[] {
 		case 'notify':
 			return ['run.summary'];
 		case 'condition':
+		case 'delay':
 		case 'manual':
 			return [];
 		default: {
@@ -579,6 +580,16 @@ function validateStepRequiredFields(
 					errors,
 					`${stepPath}.expression`,
 					'condition step requires a non-empty expression',
+				);
+			}
+			return;
+		}
+		case 'delay': {
+			if (!Number.isInteger(step.duration_ms) || step.duration_ms <= 0) {
+				pushError(
+					errors,
+					`${stepPath}.duration_ms`,
+					'delay step requires a positive integer duration_ms',
 				);
 			}
 			return;
@@ -880,6 +891,8 @@ export function validateTemplate(
 					availableInputs,
 					availableArtifacts,
 				);
+				break;
+			case 'delay':
 				break;
 			case 'exec':
 				validateInterpolatedValue(
@@ -1195,6 +1208,8 @@ export function renderStepRequestPayload(
 						undefined
 					: undefined,
 			};
+		case 'delay':
+			return {};
 		default: {
 			const payloadLessKind: 'artifact' | 'condition' = step.kind;
 			void payloadLessKind;

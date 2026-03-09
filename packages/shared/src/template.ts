@@ -76,6 +76,11 @@ export interface ConditionStepDefinition extends BaseStepDefinition {
 	kind: 'condition';
 }
 
+export interface DelayStepDefinition extends BaseStepDefinition {
+	duration_ms: number;
+	kind: 'delay';
+}
+
 export interface ArtifactStepDefinition extends BaseStepDefinition {
 	input: string;
 	kind: 'artifact';
@@ -86,6 +91,7 @@ export type StepDefinition =
 	| AgentStepDefinition
 	| ArtifactStepDefinition
 	| ConditionStepDefinition
+	| DelayStepDefinition
 	| ExecStepDefinition
 	| ManualStepDefinition
 	| NotifyStepDefinition;

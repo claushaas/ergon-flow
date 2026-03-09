@@ -135,7 +135,7 @@ A implementação **não está aderente ao roadmap atual** nem **alinhada à doc
 - `TEMPLATE_SPEC.md` lista notify targets como `slack/discord/email/webhook`; o runtime só suporta `stdout/webhook/openclaw`.
 - `ARCHITECTURE.md` diz que integrações externas ficam em clients e storage centraliza persistência; hoje `NotifyExecutor` fala com webhook/OpenClaw e o runner grava filesystem diretamente.
 - `README.md` ainda descreve “STOA Monorepo”, `stoa` CLI e `packages/runtime`; a documentação de topo não representa o repositório atual.
-- `library/agents` e `library/schemas` existem, mas o runtime não carrega profiles nem valida output de agent contra JSON Schema. Isso fere a promessa declarativa do próprio repositório.
+- `docs/ideas/agents` e `docs/ideas/schemas` existem, mas o runtime não carrega profiles nem valida output de agent contra JSON Schema. Isso fere a promessa declarativa do próprio repositório.
 
 # 7. Lacunas de testes
 
@@ -410,7 +410,7 @@ perigosa de divergência semântica do repositório.
 - O parser aceita providers que o runtime não sabe instanciar de verdade.
 - `depends_on` existe, mas hoje é usado mais como heurística de skip do que como
   dependência de execução real.
-- `library/agents` e `library/schemas` existem como contratos declarativos, mas
+- `docs/ideas/agents` e `docs/ideas/schemas` existem como contratos declarativos, mas
   o runtime não os usa nem os valida.
 
 ### Correções detalhadas
@@ -465,7 +465,7 @@ perigosa de divergência semântica do repositório.
    se a validação bloquear o uso em tempo de template.
    O campo `agent:` de `openclaw` precisa ser implementado ou rejeitado
    explicitamente.
-   `library/agents` e `library/schemas` precisam seguir uma das duas linhas:
+   `docs/ideas/agents` e `docs/ideas/schemas` precisam seguir uma das duas linhas:
    integrar ao runtime com validação real de outputs, ou sair do escopo
    canônico de `v0.0.1` e ser removido das claims da documentação.
 
@@ -490,8 +490,8 @@ perigosa de divergência semântica do repositório.
 - `docs/ROADMAP.md`
 - `docs/SPEC.md`
 - `library/workflows/`
-- `library/agents/`
-- `library/schemas/`
+- `docs/ideas/agents/`
+- `docs/ideas/schemas/`
 
 ## Fase 4 — P1 Artifacts, Recovery e Cancelamento
 
@@ -649,7 +649,7 @@ confiável para o usuário que vai testar o produto.
 
 7. Revisar o roadmap e a comunicação de release.
    O roadmap deve sair do estado atual de "✅" inflado e passar a refletir o que
-   realmente ficou pronto. Se `library/agents` e `library/schemas` não entrarem
+   realmente ficou pronto. Se `docs/ideas/agents` e `docs/ideas/schemas` não entrarem
    no runtime final de `v0.0.1`, isso deve ser dito de forma direta.
 
 ### Critério de saída

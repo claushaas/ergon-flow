@@ -7,8 +7,9 @@ Install:
   pnpm add -g @claushaas/ergon-cli
 
 Usage:
-  ergon init [--root <path>]
-  ergon library sync [--force] [--root <path>]
+  ergon init [--root <path>] [--no-library]
+  ergon library sync [--force] [--root <path>] [--detach] [--reattach]
+  ergon skill install [skill_id] [--path <dir>] [--root <path>]
   ergon template list
   ergon workflow list
   ergon run <workflow_id> [--inputs <json-or-path>]
@@ -19,8 +20,9 @@ Usage:
   ergon cancel <run_id>
 
 Bootstrap:
-  "ergon init" creates ./.ergon, copies the embedded library into
-  ./.ergon/library, and configures local storage at ./.ergon/storage/ergon.db.
+  "ergon init" creates ./.ergon and configures local storage at
+  ./.ergon/storage/ergon.db. By default it also copies the embedded library
+  into ./.ergon/library. Use "--no-library" to start detached.
 
 Initialization rules:
   "template list", "--help", and "--version" work before initialization.

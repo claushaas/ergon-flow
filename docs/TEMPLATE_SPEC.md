@@ -206,6 +206,19 @@ The expression is rendered through interpolation and then coerced by truthiness:
 
 When false, dependents are skipped by the engine.
 
+### `delay`
+
+Required fields:
+
+- `id`
+- `kind: delay`
+- `duration_ms`
+
+The worker waits for `duration_ms` milliseconds before continuing to the next
+step.
+
+`duration_ms` must be a positive integer.
+
 ### `manual`
 
 Required fields:
@@ -312,9 +325,9 @@ The loader rejects templates that have:
 
 ## Current Limitations
 
-These are deliberate in `v0.1.4`:
+These are deliberate in `v0.2.0`:
 
 - no `steps.*` interpolation
 - no parallel DAG scheduling
-- no runtime loading of `library/agents`
-- no runtime schema validation against `library/schemas`
+- no runtime loading of `docs/ideas/agents`
+- no runtime schema validation against `docs/ideas/schemas`

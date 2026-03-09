@@ -1,0 +1,36 @@
+workflow:
+  id: example.condition
+  version: 1
+  description: "Use a condition step to gate an optional exec step."
+  author: "ergon-flow-expert"
+  tags: ["example", "condition", "exec"]
+
+inputs:
+  should_run:
+    type: boolean
+    description: "Whether the gated step should run."
+    default: true
+
+steps:
+  - id: check
+    kind: condition
+    expression: "{{ inputs.should_run }}"
+
+  - id: maybe.run
+    kind: exec
+    depends_on:
+      - check
+    command: |
+      set -euo pipefail
+      printf 'condition passed\n'
+
+  - id: notify.done
+    kind: notify
+    channel: stdout
+    depends_on:
+      - check
+    message: |
+      Condition was truthy and dependent steps ran.
+
+outputs:
+  requested: inputs.should_run

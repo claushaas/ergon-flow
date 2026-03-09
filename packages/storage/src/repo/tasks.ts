@@ -1,32 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
+import type {
+	StepKind,
+	StepRunStatus,
+	WorkflowRunStatus,
+} from '@claushaas/ergon-shared';
 import { runInTransaction } from '../db.js';
 import { appendEventInTransaction } from './events.js';
 import { assertRow, optionalJson, toJson } from './utils.js';
-
-export type WorkflowRunStatus =
-	| 'canceled'
-	| 'failed'
-	| 'queued'
-	| 'running'
-	| 'succeeded'
-	| 'waiting_manual';
-
-export type StepKind =
-	| 'agent'
-	| 'artifact'
-	| 'condition'
-	| 'exec'
-	| 'manual'
-	| 'notify';
-
-export type StepRunStatus =
-	| 'failed'
-	| 'queued'
-	| 'running'
-	| 'skipped'
-	| 'succeeded'
-	| 'waiting_manual';
 
 export interface WorkflowRunRow {
 	attempt: number;

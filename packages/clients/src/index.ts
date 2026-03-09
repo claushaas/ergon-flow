@@ -303,6 +303,16 @@ function resolveCliInput(
 	throw new Error(`${providerLabel} request must include a prompt or messages`);
 }
 
+function formatMessagesAsTranscript(messages: ChatMessage[]): string {
+	return messages
+		.map((message) => {
+			const role = message.role.toUpperCase();
+			const content = normalizeMessageContent(message.content).trim();
+			return content ? `${role}:\n${content}` : role;
+		})
+		.join('\n\n');
+}
+
 async function defaultSpawn(options: {
 	args: string[];
 	command: string;
@@ -520,11 +530,12 @@ abstract class CliAgentClientBase implements ExecutionClient {
 	}
 
 	public async run(request: ClientRequest): Promise<AgentResult> {
+		const args = this.resolveArgs(request);
 		const result = await this.spawnImpl({
-			args: this.args,
+			args,
 			command: this.command,
 			env: this.env,
-			input: resolveCliInput(request, this.displayName),
+			input: this.resolveInput(request),
 			signal: request.signal,
 		});
 		if (result.code !== 0) {
@@ -558,13 +569,32 @@ abstract class CliAgentClientBase implements ExecutionClient {
 			}
 		}
 	}
+
+	protected resolveArgs(_request: ClientRequest): string[] {
+		return [...this.args];
+	}
+
+	protected resolveInput(request: ClientRequest): string {
+		return resolveCliInput(request, this.displayName);
+	}
 }
 
 export class CodexAgentClient extends CliAgentClientBase {
 	public readonly provider = 'codex' as const;
 
 	public constructor(options: CliClientOptions = {}) {
-		super('codex', 'codex', [], options);
+		super('codex', 'codex', ['exec'], options);
+	}
+
+	protected override resolveArgs(request: ClientRequest): string[] {
+		const args = super.resolveArgs(request);
+		if (!request.model) {
+			return args;
+		}
+		if (args.includes('--model') || args.includes('-m')) {
+			return args;
+		}
+		return [...args, '--model', request.model];
 	}
 }
 
@@ -572,7 +602,26 @@ export class ClaudeCodeAgentClient extends CliAgentClientBase {
 	public readonly provider = 'claude-code' as const;
 
 	public constructor(options: CliClientOptions = {}) {
-		super('claude-code', 'claude', [], options);
+		super('claude-code', 'claude', ['--print'], options);
+	}
+
+	protected override resolveArgs(request: ClientRequest): string[] {
+		const args = super.resolveArgs(request);
+		if (!request.model) {
+			return args;
+		}
+		if (args.includes('--model') || args.includes('-m')) {
+			return args;
+		}
+		return [...args, '--model', request.model];
+	}
+
+	protected override resolveInput(request: ClientRequest): string {
+		const messages = request.messages;
+		if (messages && messages.length > 0) {
+			return formatMessagesAsTranscript(messages);
+		}
+		return super.resolveInput(request);
 	}
 }
 

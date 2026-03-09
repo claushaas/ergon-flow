@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [0.2.0] - 2026-03-08
+
+### Added
+
+- `delay` as a native workflow step kind for controlled pauses between steps
+- `ergon skill install` for copying repo-distributed skills into a local skills
+  directory
+- detached library mode with `ergon init --no-library`,
+  `ergon library sync --detach`, and `ergon library sync --reattach`
+- a repo-distributed `ergon-flow-expert` skill for CLI and workflow authoring
+
+### Changed
+
+- `codex` and `claude-code` providers now default to non-interactive CLI modes
+- canonical docs now describe workflow reuse via inputs, manual rejection
+  semantics, update flows, and detached library behavior
+- future-facing agent profiles and artifact schemas now live under
+  `docs/ideas/`
+
 ## [0.1.4] - 2026-03-08
 
 ### Added

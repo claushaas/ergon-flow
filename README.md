@@ -19,7 +19,7 @@ The runtime is designed around auditability:
 - every artifact is stored on disk and indexed in SQLite
 - every significant transition is appended to `events`
 
-## What v0.1.4 Includes
+## What v0.2.0 Includes
 
 The current release scope is pragmatic and explicit:
 
@@ -39,6 +39,7 @@ Supported step kinds:
 - `agent`
 - `artifact`
 - `condition`
+- `delay`
 - `exec`
 - `manual`
 - `notify`
@@ -51,15 +52,16 @@ Supported providers:
 - `claude-code`
 - `openclaw`
 
-## What v0.1.4 Does Not Include
+## What v0.2.0 Does Not Include
 
 These repository assets exist, but they are not enforced by the runtime yet:
 
-- `library/agents/`
-- `library/schemas/`
+- `docs/ideas/agents/`
+- `docs/ideas/schemas/`
 
-The current runtime does not load agent profiles from `library/agents` and does
-not validate agent artifacts against `library/schemas` during execution.
+The current runtime does not load agent profiles from `docs/ideas/agents` and
+does not validate agent artifacts against `docs/ideas/schemas` during
+execution.
 
 The current engine is also intentionally limited to sequential execution. It is
 not a parallel DAG scheduler.
@@ -85,6 +87,13 @@ ergon --help
 ergon --version
 ```
 
+To initialize a detached project without importing the embedded library:
+
+```bash
+cd /path/to/your/repo
+ergon init --no-library
+```
+
 This creates:
 
 ```text
@@ -94,9 +103,11 @@ This creates:
   library/
 ```
 
-The embedded `library/` bundled with the CLI is copied into
-`./.ergon/library/`. After initialization, the CLI resolves workflows from the
-nearest ancestor `.ergon/library/workflows`.
+By default, the embedded `library/` bundled with the CLI is copied into
+`./.ergon/library/`. If you initialize with `--no-library`, the directory is
+created but left empty and the project starts in detached mode. After
+initialization, the CLI resolves workflows from the nearest ancestor
+`.ergon/library/workflows`.
 
 For repository development, run the full local gate:
 
@@ -120,6 +131,64 @@ List bundled templates and then register workflows inside an initialized project
 ergon template list
 ergon workflow list
 ```
+
+## Updating
+
+When updating Ergon Flow in a real repository, treat the CLI binary and the
+project-local library as two separate things:
+
+- the global CLI binary is updated with `pnpm add -g`
+- the repository-local managed assets are updated with `ergon library sync`
+
+Recommended update flow:
+
+```bash
+pnpm add -g @claushaas/ergon-cli@latest
+cd /path/to/your/repo
+ergon library sync
+ergon --version
+```
+
+If the repository is intentionally detached from the embedded library, a plain
+`ergon library sync` fails clearly. Reattach first:
+
+```bash
+ergon library sync --reattach
+```
+
+If you want to force the repository-local managed library files to match the
+new CLI version exactly:
+
+```bash
+ergon library sync --force
+```
+
+Important behavior:
+
+- `ergon library sync` updates managed files that are unchanged locally and
+  reports locally edited managed files as conflicts
+- `ergon library sync --force` overwrites locally modified managed files in
+  `./.ergon/library`
+- `ergon library sync --detach` keeps the current files on disk but stops
+  treating them as managed by the CLI
+- `ergon library sync --reattach` resumes managed updates and rebuilds the
+  managed file metadata
+- custom files that do not exist in the embedded library are not removed by
+  `library sync`, even with `--force`
+
+Recommended practice for customized workflows:
+
+- do not edit the built-in workflow files in place if you want to keep local
+  changes across upgrades
+- copy a built-in workflow to a new file and new workflow id, then customize
+  that copy
+
+Configuration metadata:
+
+- `./.ergon/config.json` stores `cli_version`, `library_mode`, and, when
+  managed, `library_version`
+- these values are updated automatically by `ergon library sync`
+- users should not edit `cli_version` manually
 
 ## Running a Real Worker
 
@@ -168,18 +237,197 @@ Provider prerequisites:
 
 ## CLI Surface
 
-Current commands:
+Current commands and common examples:
 
-- `ergon init [--root <path>]`
-- `ergon library sync [--force] [--root <path>]`
+- `ergon init [--root <path>] [--no-library]`
+  - Initialize Ergon Flow in the current repository:
+
+    ```bash
+    ergon init
+    ```
+
+  - Initialize a different repository path:
+
+    ```bash
+    ergon init --root /path/to/repo
+    ```
+
+  - Initialize without copying the embedded library:
+
+    ```bash
+    ergon init --no-library
+    ```
+
+- `ergon library sync [--force] [--root <path>] [--detach] [--reattach]`
+  - Refresh the project-local embedded library:
+
+    ```bash
+    ergon library sync
+    ```
+
+  - Force overwrite local library files with the embedded version:
+
+    ```bash
+    ergon library sync --force
+    ```
+
+  - Sync a different initialized repository:
+
+    ```bash
+    ergon library sync --root /path/to/repo
+    ```
+
+  - Detach the project from managed library updates while keeping the current
+    files on disk:
+
+    ```bash
+    ergon library sync --detach
+    ```
+
+  - Reattach a detached project and resume managed library updates:
+
+    ```bash
+    ergon library sync --reattach
+    ```
+
+- `ergon skill install [skill_id] [--path <dir>] [--root <path>]`
+  - Install the only repo-distributed skill into `./skills/`:
+
+    ```bash
+    ergon skill install
+    ```
+
+  - Install a specific skill by id:
+
+    ```bash
+    ergon skill install ergon-flow-expert
+    ```
+
+  - Install into a custom target directory:
+
+    ```bash
+    ergon skill install ergon-flow-expert --path ./.codex/skills
+    ```
+
+  - Install a skill from another repository root:
+
+    ```bash
+    ergon skill install ergon-flow-expert --root /path/to/repo
+    ```
+
 - `ergon template list`
+  - List embedded templates before or after project initialization:
+
+    ```bash
+    ergon template list
+    ```
+
 - `ergon workflow list`
+  - List workflows registered in the current project:
+
+    ```bash
+    ergon workflow list
+    ```
+
 - `ergon run <workflow_id> [--inputs <json-or-path>]`
+  - Schedule a workflow with default inputs:
+
+    ```bash
+    ergon run code.bump_deps
+    ```
+
+  - Schedule a workflow with inline JSON inputs:
+
+    ```bash
+    ergon run agent.smoke --inputs '{"output_file":".ergon/tmp/result.txt"}'
+    ```
+
+  - Schedule a workflow with inputs loaded from a file:
+
+    ```bash
+    ergon run code.hotfix --inputs ./inputs/hotfix.json
+    ```
+
+  - Reuse the same workflow repeatedly with different inputs for each run. For
+    example, one standard implementation workflow can stay fixed while each run
+    changes the branch name, task description, or feature prompt:
+
+    ```bash
+    ergon run code.feature_delivery --inputs ./inputs/feature-search.json
+    ergon run code.feature_delivery --inputs ./inputs/feature-billing.json
+    ```
+
+    This lets you keep one reusable workflow template while scheduling
+    different runs for different implementation tasks.
+
 - `ergon run list [--status <status>] [--workflow <workflow_id>] [--limit <n>] [--offset <n>]`
+  - List recent runs:
+
+    ```bash
+    ergon run list
+    ```
+
+  - Show only runs currently executing:
+
+    ```bash
+    ergon run list --status running
+    ```
+
+  - Show only runs for one workflow:
+
+    ```bash
+    ergon run list --workflow agent.smoke
+    ```
+
+  - Paginate through older runs:
+
+    ```bash
+    ergon run list --limit 20 --offset 20
+    ```
+
 - `ergon run status <run_id>`
+  - Inspect one run and all of its persisted step runs:
+
+    ```bash
+    ergon run status 899733a6-340b-4a21-9d48-6a03b7a60675
+    ```
+
 - `ergon worker start [runtime flags]`
+  - Start a worker that keeps polling for queued runs until you stop it:
+
+    ```bash
+    ergon worker start
+    ```
+
+  - Process a single run and exit:
+
+    ```bash
+    ergon worker start --max-runs 1
+    ```
+
 - `ergon approve <run_id> <step_id> --decision approve|reject`
+  - Approve a manual gate and requeue the run:
+
+    ```bash
+    ergon approve efe9cc3e-1759-4020-9307-5cc388cf3566 approve --decision approve
+    ```
+
+  - Reject a manual gate:
+
+    ```bash
+    ergon approve efe9cc3e-1759-4020-9307-5cc388cf3566 approve --decision reject
+    ```
+
+  - Approval resumes the workflow from the next step. Rejection ends the
+    workflow immediately with status `failed`, even if more steps are defined
+    after the manual gate.
+
 - `ergon cancel <run_id>`
+  - Cancel a queued, running, or waiting-manual run:
+
+    ```bash
+    ergon cancel 899733a6-340b-4a21-9d48-6a03b7a60675
+    ```
 
 Stateful commands (`workflow list`, `run`, `run status`, `worker start`,
 `approve`, `cancel`) require an initialized project. `template list` can run
@@ -221,7 +469,7 @@ The repository treats these documents as source of truth:
 
 ## Release Flow
 
-Public releases are cut from `main` using Git tags such as `v0.1.4`.
+Public releases are cut from `main` using Git tags such as `v0.2.0`.
 
 Before tagging a release:
 

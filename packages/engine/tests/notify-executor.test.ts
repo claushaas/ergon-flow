@@ -49,7 +49,7 @@ describe('NotifyExecutor (E6)', () => {
 		const result = await executor.execute(step, createTestContext());
 
 		expect(logMock).toHaveBeenCalledWith(
-			'"[ergon-flow] workflow=code.refactor run=run_1 step=notify.stdout channel=stdout\\nergon-flow status=passed"',
+			'[ergon-flow] workflow=code.refactor run=run_1 step=notify.stdout channel=stdout\nergon-flow status=passed',
 		);
 		expect(result).toEqual({
 			artifacts: [
@@ -287,13 +287,13 @@ describe('NotifyExecutor (E6)', () => {
 			channel: 'stdout',
 			id: 'notify.stdout',
 			kind: 'notify',
-			message: 'line 1\nline 2',
+			message: 'line 1\u001b[31m\r\nline 2\u0000\tok',
 		};
 
 		await executor.execute(step, createTestContext());
 
 		expect(logMock).toHaveBeenCalledWith(
-			'"[ergon-flow] workflow=code.refactor run=run_1 step=notify.stdout channel=stdout\\nline 1\\nline 2"',
+			'[ergon-flow] workflow=code.refactor run=run_1 step=notify.stdout channel=stdout\nline 1\nline 2\tok',
 		);
 	});
 

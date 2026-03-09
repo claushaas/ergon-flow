@@ -1,8 +1,11 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,6 +34,7 @@ import {
 	listWorkflowRuns,
 	scheduleRun,
 } from '../src/commands/run.js';
+import { installSkill } from '../src/commands/skill.js';
 import { listTemplates } from '../src/commands/template.js';
 import { syncWorkflows } from '../src/commands/workflow.js';
 import { loadCliConfig } from '../src/config/index.js';
@@ -55,6 +59,35 @@ function writeWorkflow(
 
 function initializeProjectRoot(rootDir: string): void {
 	initProject({ rootDir });
+}
+
+function readProjectConfig(rootDir: string) {
+	return JSON.parse(
+		readFileSync(path.join(rootDir, '.ergon', 'config.json'), 'utf8'),
+	) as {
+		cli_version: string;
+		env_file?: string;
+		format_version: number;
+		initialized_at: string;
+		library_files: Record<string, string>;
+		library_mode: 'detached' | 'managed';
+		library_version?: string;
+	};
+}
+
+function writeSkill(rootDir: string, skillId: string): void {
+	const skillDir = path.join(rootDir, 'skill', skillId, 'references');
+	mkdirSync(skillDir, { recursive: true });
+	writeFileSync(
+		path.join(rootDir, 'skill', skillId, 'SKILL.md'),
+		`---
+name: ${skillId}
+description: test skill
+---
+`,
+		'utf8',
+	);
+	writeFileSync(path.join(skillDir, 'guide.md'), '# Guide\n', 'utf8');
 }
 
 afterEach(() => {
@@ -101,6 +134,110 @@ steps:
 				template.path.startsWith('embedded/library/workflows/'),
 			),
 		).toBe(true);
+	});
+
+	it('installs a repo-distributed skill into the default ./skills directory', () => {
+		const rootDir = createTempRoot();
+		const nestedDir = path.join(rootDir, 'packages', 'cli');
+		mkdirSync(nestedDir, { recursive: true });
+		writeSkill(rootDir, 'ergon-flow-expert');
+
+		const previousCwd = process.cwd();
+		process.chdir(nestedDir);
+		try {
+			const result = installSkill(undefined);
+
+			expect(realpathSync(result.rootDir)).toBe(realpathSync(rootDir));
+			expect(result.skillId).toBe('ergon-flow-expert');
+			expect(realpathSync(result.destinationPath)).toBe(
+				realpathSync(path.join(nestedDir, 'skills', 'ergon-flow-expert')),
+			);
+			expect(result.filesCopied).toBe(2);
+			expect(
+				readFileSync(path.join(result.destinationPath, 'SKILL.md'), 'utf8'),
+			).toContain('name: ergon-flow-expert');
+		} finally {
+			process.chdir(previousCwd);
+		}
+	});
+
+	it('requires an explicit skill id when multiple repo-distributed skills exist', () => {
+		const rootDir = createTempRoot();
+		writeSkill(rootDir, 'ergon-flow-expert');
+		writeSkill(rootDir, 'release-version-bump');
+
+		expect(() => installSkill(undefined, { rootDir })).toThrow(
+			'Multiple skills are available',
+		);
+	});
+
+	it('fails clearly when the repository does not distribute any skills', () => {
+		const rootDir = createTempRoot();
+
+		expect(() => installSkill(undefined, { rootDir })).toThrow(
+			'No repo-distributed skills were found',
+		);
+	});
+
+	it('installs a skill into an explicit destination path', () => {
+		const rootDir = createTempRoot();
+		const destinationDir = path.join(rootDir, '.codex', 'skills');
+		writeSkill(rootDir, 'ergon-flow-expert');
+
+		const result = installSkill('ergon-flow-expert', {
+			destinationDir,
+			rootDir,
+		});
+
+		expect(realpathSync(result.destinationPath)).toBe(
+			realpathSync(path.join(destinationDir, 'ergon-flow-expert')),
+		);
+		expect(
+			readFileSync(
+				path.join(result.destinationPath, 'references', 'guide.md'),
+				'utf8',
+			),
+		).toBe('# Guide\n');
+	});
+
+	it('rejects top-level skill directories that are symbolic links', () => {
+		const rootDir = createTempRoot();
+		const externalSkillDir = path.join(rootDir, 'external-skill');
+		mkdirSync(externalSkillDir, { recursive: true });
+		writeFileSync(
+			path.join(externalSkillDir, 'SKILL.md'),
+			'---\nname: ergon-flow-expert\ndescription: test skill\n---\n',
+			'utf8',
+		);
+		mkdirSync(path.join(rootDir, 'skill'), { recursive: true });
+		symlinkSync(
+			externalSkillDir,
+			path.join(rootDir, 'skill', 'ergon-flow-expert'),
+		);
+
+		expect(() => installSkill('ergon-flow-expert', { rootDir })).toThrow(
+			'is a symbolic link',
+		);
+	});
+
+	it('rejects symbolic links found inside a skill directory', () => {
+		const rootDir = createTempRoot();
+		const destinationDir = path.join(rootDir, 'installed-skills');
+		writeSkill(rootDir, 'ergon-flow-expert');
+		symlinkSync(
+			path.join(rootDir, 'README.md'),
+			path.join(
+				rootDir,
+				'skill',
+				'ergon-flow-expert',
+				'references',
+				'linked.md',
+			),
+		);
+
+		expect(() =>
+			installSkill('ergon-flow-expert', { destinationDir, rootDir }),
+		).toThrow('contains a symbolic link');
 	});
 
 	it('syncs workflows into storage and lists them', () => {
@@ -407,25 +544,38 @@ steps:
 
 		const result = initProject({ rootDir });
 		const configPath = path.join(rootDir, '.ergon', 'config.json');
-		const parsedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as {
-			cli_version: string;
-			env_file?: string;
-			format_version: number;
-			initialized_at: string;
-			library_files: Record<string, string>;
-			library_version: string;
-		};
+		const parsedConfig = readProjectConfig(rootDir);
 
 		expect(result.rootDir).toBe(rootDir);
 		expect(result.configPath).toBe(configPath);
+		expect(result.libraryMode).toBe('managed');
 		expect(parsedConfig.format_version).toBe(1);
-		expect(parsedConfig.cli_version).toBe('0.1.4');
+		expect(parsedConfig.cli_version).toBe('0.2.0');
 		expect(parsedConfig.env_file).toBe('.env');
-		expect(parsedConfig.library_version).toBe('0.1.4');
+		expect(parsedConfig.library_mode).toBe('managed');
+		expect(parsedConfig.library_version).toBe('0.2.0');
 		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
 		expect(Object.keys(parsedConfig.library_files)).toContain(
 			'workflows/code.refactor.yaml',
 		);
+	});
+
+	it('initializes a detached project without copying the embedded library', () => {
+		const rootDir = createTempRoot();
+
+		const result = initProject({ noLibrary: true, rootDir });
+		const parsedConfig = readProjectConfig(rootDir);
+		const workflowsDir = path.join(rootDir, '.ergon', 'library', 'workflows');
+
+		expect(result.libraryMode).toBe('detached');
+		expect(result.libraryVersion).toBeUndefined();
+		expect(parsedConfig.library_mode).toBe('detached');
+		expect(parsedConfig.library_version).toBeUndefined();
+		expect(parsedConfig.library_files).toEqual({});
+		expect(existsSync(path.join(rootDir, '.ergon', 'library'))).toBe(true);
+		expect(() =>
+			readFileSync(path.join(workflowsDir, 'code.refactor.yaml')),
+		).toThrow();
 	});
 
 	it('discovers the nearest initialized project root from nested directories', () => {
@@ -458,6 +608,7 @@ steps:
 		const summary = syncLibrary({ rootDir });
 
 		expect(summary.conflicted).toContain('workflows/code.refactor.yaml');
+		expect(summary.libraryMode).toBe('managed');
 		expect(readFileSync(workflowPath, 'utf8')).toBe('# locally modified\n');
 	});
 
@@ -474,18 +625,104 @@ steps:
 		writeFileSync(workflowPath, '# locally modified\n', 'utf8');
 
 		const summary = syncLibrary({ force: true, rootDir });
-		const configPath = path.join(rootDir, '.ergon', 'config.json');
-		const parsedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as {
-			library_files: Record<string, string>;
-			library_version: string;
-		};
+		const parsedConfig = readProjectConfig(rootDir);
 
 		expect(summary.updated).toContain('workflows/code.refactor.yaml');
+		expect(summary.libraryMode).toBe('managed');
 		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
-		expect(parsedConfig.library_version).toBe('0.1.4');
+		expect(parsedConfig.library_version).toBe('0.2.0');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);
+	});
+
+	it('fails clearly when syncing a detached project without reattaching', () => {
+		const rootDir = createTempRoot();
+		initProject({ noLibrary: true, rootDir });
+
+		expect(() => syncLibrary({ rootDir })).toThrow(
+			'is detached from the embedded library',
+		);
+	});
+
+	it('detaches a managed project without deleting existing library files', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+		const workflowPath = path.join(
+			rootDir,
+			'.ergon',
+			'library',
+			'workflows',
+			'code.refactor.yaml',
+		);
+		const beforeDetach = readFileSync(workflowPath, 'utf8');
+
+		const summary = syncLibrary({ detach: true, rootDir });
+		const parsedConfig = readProjectConfig(rootDir);
+
+		expect(summary.libraryMode).toBe('detached');
+		expect(parsedConfig.library_mode).toBe('detached');
+		expect(parsedConfig.library_files).toEqual({});
+		expect(parsedConfig.library_version).toBe('0.2.0');
+		expect(readFileSync(workflowPath, 'utf8')).toBe(beforeDetach);
+	});
+
+	it('reattaches a detached project and rebuilds managed metadata', () => {
+		const rootDir = createTempRoot();
+		initProject({ noLibrary: true, rootDir });
+
+		const summary = syncLibrary({ reattach: true, rootDir });
+		const parsedConfig = readProjectConfig(rootDir);
+
+		expect(summary.libraryMode).toBe('managed');
+		expect(summary.added).toContain('workflows/code.refactor.yaml');
+		expect(parsedConfig.library_mode).toBe('managed');
+		expect(parsedConfig.library_version).toBe('0.2.0');
+		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
+			expect.any(String),
+		);
+	});
+
+	it('treats reattach on an already managed project as a normal sync', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+
+		const summary = syncLibrary({ reattach: true, rootDir });
+
+		expect(summary.libraryMode).toBe('managed');
+		expect(summary.conflicted).toEqual([]);
+	});
+
+	it('reattaches a detached project with force and overwrites embedded files', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+		const workflowPath = path.join(
+			rootDir,
+			'.ergon',
+			'library',
+			'workflows',
+			'code.refactor.yaml',
+		);
+
+		syncLibrary({ detach: true, rootDir });
+		writeFileSync(workflowPath, '# locally modified while detached\n', 'utf8');
+
+		const summary = syncLibrary({ force: true, reattach: true, rootDir });
+
+		expect(summary.libraryMode).toBe('managed');
+		expect(summary.updated).toContain('workflows/code.refactor.yaml');
+		expect(readFileSync(workflowPath, 'utf8')).not.toBe(
+			'# locally modified while detached\n',
+		);
+	});
+
+	it('rejects conflicting detach and reattach flags', () => {
+		const rootDir = createTempRoot();
+		initializeProjectRoot(rootDir);
+
+		expect(() =>
+			syncLibrary({ detach: true, reattach: true, rootDir }),
+		).toThrow('Cannot use "--detach" and "--reattach" together');
 	});
 
 	it('approves a waiting manual step and requeues the run', () => {

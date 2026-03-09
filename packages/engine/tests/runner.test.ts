@@ -38,6 +38,8 @@ import type {
 import {
 	AgentExecutor,
 	ArtifactExecutor,
+	DelayExecutor,
+	ExecExecutor,
 	ExecutorRegistry,
 	executeRun,
 	ManualExecutor,
@@ -357,7 +359,7 @@ steps:
 			'run.summary',
 		]);
 		expect(log).toHaveBeenCalledWith(
-			`"[ergon-flow] workflow=test.runner run=${queuedRun.id} step=notify channel=stdout\\ndone ok"`,
+			`[ergon-flow] workflow=test.runner run=${queuedRun.id} step=notify channel=stdout\ndone ok`,
 		);
 		const storedSummary = path.join(rootDir, artifacts[2]?.path ?? '');
 		expect(JSON.parse(readFileSync(storedSummary, 'utf8'))).toEqual({
@@ -736,7 +738,7 @@ steps:
 
 		expect(resumedRun?.status).toBe('succeeded');
 		expect(log).toHaveBeenCalledWith(
-			`"[ergon-flow] workflow=test.manual.resume run=${queuedRun.id} step=notify channel=stdout\\napproved"`,
+			`[ergon-flow] workflow=test.manual.resume run=${queuedRun.id} step=notify channel=stdout\napproved`,
 		);
 
 		const stepRuns = listStepRuns(db, queuedRun.id);
@@ -848,6 +850,84 @@ steps:
 		db.close();
 	});
 
+	it('executes a delay step and persists its output', async () => {
+		const rootDir = createTempRoot();
+		const db = openStorageDb({
+			dbPath: path.join(rootDir, 'ergon.db'),
+			migrationsDir: migrationsDir.pathname,
+		});
+		const sourcePath = writeTemplate(
+			rootDir,
+			`
+workflow:
+  id: test.delay
+  version: 1
+outputs:
+  after_stdout: artifacts.after.stdout
+steps:
+  - id: pause
+    kind: delay
+    duration_ms: 5
+  - id: after
+    kind: exec
+    command: "printf 'after-delay\\n'"
+`,
+		);
+		const workflowHash = hashTemplate(rootDir, sourcePath);
+
+		registerWorkflow(db, {
+			hash: workflowHash,
+			id: 'test.delay',
+			sourcePath,
+			version: 1,
+		});
+		const queuedRun = createRun(
+			db,
+			'test.delay',
+			{},
+			{
+				workflowHash,
+				workflowVersion: 1,
+			},
+		);
+		const claimedRun = claimNextRun(db, 'worker-delay', 30_000);
+		expect(claimedRun?.id).toBe(queuedRun.id);
+
+		const finishedRun = await executeRun(
+			queuedRun.id,
+			{
+				claimEpoch: claimedRun?.claim_epoch ?? 1,
+				workerId: 'worker-delay',
+			},
+			{
+				db,
+				executors: new ExecutorRegistry([
+					new DelayExecutor(),
+					new ExecExecutor({
+						spawn: vi.fn().mockResolvedValue({
+							code: 0,
+							signal: null,
+							stderr: '',
+							stdout: 'after-delay\n',
+						}),
+					}),
+				]),
+				rootDir,
+			},
+		);
+
+		expect(finishedRun?.status).toBe('succeeded');
+		const stepRuns = listStepRuns(db, queuedRun.id);
+		expect(stepRuns).toHaveLength(2);
+		expect(stepRuns[0]?.step_id).toBe('pause');
+		expect(stepRuns[0]?.status).toBe('succeeded');
+		expect(JSON.parse(stepRuns[0]?.output_json ?? '{}')).toEqual({
+			duration_ms: 5,
+		});
+
+		db.close();
+	});
+
 	it('executes on_failure notify steps after a workflow failure', async () => {
 		const rootDir = createTempRoot();
 		const db = openStorageDb({
@@ -912,7 +992,7 @@ steps:
 		).rejects.toThrow('boom:explode');
 
 		expect(logMock).toHaveBeenCalledWith(
-			`"[ergon-flow] workflow=test.failed.notify run=${queuedRun.id} step=notify.failure channel=stdout\\nfailed step=explode message=boom:explode"`,
+			`[ergon-flow] workflow=test.failed.notify run=${queuedRun.id} step=notify.failure channel=stdout\nfailed step=explode message=boom:explode`,
 		);
 
 		const stepRuns = listStepRuns(db, queuedRun.id);

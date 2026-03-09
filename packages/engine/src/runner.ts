@@ -14,7 +14,6 @@ import type {
 	StepRunStatus,
 	WorkflowTemplate,
 } from '@claushaas/ergon-shared';
-import { ERROR_CODES } from '@claushaas/ergon-shared';
 import {
 	appendEvent,
 	appendEventInTransaction,
@@ -49,6 +48,7 @@ import {
 	createExecutionContext,
 	type ExecutorRegistry,
 } from './executors/index.js';
+import { getFailureCodeForStep } from './failureCodes.js';
 import {
 	interpolateTemplateString,
 	loadAndValidateTemplateFromFile,
@@ -58,7 +58,6 @@ import {
 import { assertWorkflowTemplateIdentity } from './workflowIdentity.js';
 
 const EXACT_INTERPOLATION_PATTERN = /^{{\s*([^{}]+?)\s*}}$/;
-const ERROR_CODE_SET: ReadonlySet<string> = new Set(ERROR_CODES);
 
 export interface ExecuteRunOptions {
 	artifactBaseDir?: string;
@@ -318,10 +317,6 @@ function createStepAbortMonitor(
 		},
 		signal: controller.signal,
 	};
-}
-
-function isErrorCode(value: unknown): value is ErrorCode {
-	return typeof value === 'string' && ERROR_CODE_SET.has(value);
 }
 
 function getStepExecutor(
@@ -619,6 +614,10 @@ function buildRequestSnapshot(
 					artifacts: context.artifacts,
 					inputs: context.inputs,
 				}),
+			};
+		case 'delay':
+			return {
+				duration_ms: step.duration_ms,
 			};
 		case 'manual':
 			return {
@@ -1052,39 +1051,6 @@ function resolveWorkflowOutputs(
 	}
 
 	return resolved;
-}
-
-function getFailureCodeForStep(
-	step: StepDefinition,
-	error: unknown,
-): ErrorCode {
-	if (
-		error &&
-		typeof error === 'object' &&
-		'code' in error &&
-		isErrorCode((error as { code?: unknown }).code)
-	) {
-		return (error as { code: ErrorCode }).code;
-	}
-
-	switch (step.kind) {
-		case 'agent':
-		case 'notify':
-			return 'provider_error';
-		case 'artifact':
-			return 'artifact_failed';
-		case 'condition':
-			return 'condition_failed';
-		case 'exec':
-			return 'exec_failed';
-		case 'manual':
-			return 'manual_rejected';
-		default: {
-			const exhaustive: never = step;
-			void exhaustive;
-			return 'schema_invalid';
-		}
-	}
 }
 
 function buildFailureMetadata(
