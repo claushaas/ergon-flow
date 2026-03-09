@@ -92,6 +92,24 @@ describe('parseApproveCommandArgs', () => {
 });
 
 describe('loadCliConfig', () => {
+	it('registers CLI providers with default commands when no env overrides are set', () => {
+		const rootDir = createTempRoot();
+
+		const config = loadCliConfig(rootDir);
+
+		expect(config.providerConfigs).toMatchObject({
+			'claude-code': {
+				command: 'claude',
+			},
+			codex: {
+				command: 'codex',
+			},
+			openclaw: {
+				command: 'openclaw',
+			},
+		});
+	});
+
 	it('reads provider env vars once into the config object', () => {
 		const rootDir = createTempRoot();
 		process.env.CODEX_COMMAND = 'codex';
@@ -104,9 +122,15 @@ describe('loadCliConfig', () => {
 		expect(config.rootDir).toBe(rootDir);
 		expect(config.initialized).toBe(false);
 		expect(config.providerConfigs).toMatchObject({
+			'claude-code': {
+				command: 'claude',
+			},
 			codex: {
 				args: ['plan', '--json'],
 				command: 'codex',
+			},
+			openclaw: {
+				command: 'openclaw',
 			},
 			openrouter: {
 				apiKey: 'secret',
@@ -124,6 +148,9 @@ describe('loadCliConfig', () => {
 		const config = loadCliConfig(rootDir);
 
 		expect(config.providerConfigs).toMatchObject({
+			'claude-code': {
+				command: 'claude',
+			},
 			codex: {
 				args: [
 					'exec',
@@ -133,6 +160,9 @@ describe('loadCliConfig', () => {
 					'minor and patch only',
 				],
 				command: 'codex',
+			},
+			openclaw: {
+				command: 'openclaw',
 			},
 		});
 	});

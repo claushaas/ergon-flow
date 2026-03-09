@@ -186,20 +186,14 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 		libraryDir: project.libraryDir,
 		projectMetadata,
 		providerConfigs: {
-			'claude-code':
-				claudeCodeCommand || claudeCodeArgs
-					? {
-							args: splitArgs(claudeCodeArgs),
-							command: claudeCodeCommand,
-						}
-					: undefined,
-			codex:
-				codexCommand || codexArgs
-					? {
-							args: splitArgs(codexArgs),
-							command: codexCommand,
-						}
-					: undefined,
+			'claude-code': {
+				args: splitArgs(claudeCodeArgs),
+				command: claudeCodeCommand ?? 'claude',
+			},
+			codex: {
+				args: splitArgs(codexArgs),
+				command: codexCommand ?? 'codex',
+			},
 			ollama:
 				ollamaBaseUrl || ollamaModel
 					? {
@@ -207,13 +201,10 @@ export function loadCliConfig(cwd: string = process.cwd()): CliConfig {
 							defaultModel: ollamaModel,
 						}
 					: undefined,
-			openclaw:
-				openClawCommand || openClawArgs
-					? {
-							args: splitArgs(openClawArgs),
-							command: openClawCommand,
-						}
-					: undefined,
+			openclaw: {
+				args: splitArgs(openClawArgs),
+				command: openClawCommand ?? 'openclaw',
+			},
 			openrouter: openRouterApiKey
 				? {
 						apiKey: openRouterApiKey,
