@@ -2,6 +2,9 @@
 	"bugs": {
 		"url": "https://github.com/claushaas/ergon-flow/issues"
 	},
+	"dependencies": {
+		"@claushaas/ergon-shared": "workspace:*"
+	},
 	"description": "SQLite storage layer for Ergon Flow workflow state",
 	"engines": {
 		"node": ">=22"

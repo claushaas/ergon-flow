@@ -1,6 +1,7 @@
 import {
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	statSync,
@@ -35,16 +36,21 @@ function assertValidSkillId(skillId: string): string {
 
 function listAvailableSkillIds(rootDir: string): string[] {
 	const skillsDir = path.join(rootDir, 'skill');
-	if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) {
+	if (!existsSync(skillsDir) || !lstatSync(skillsDir).isDirectory()) {
 		return [];
 	}
 
 	return readdirSync(skillsDir, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory() && SKILL_ID_PATTERN.test(entry.name))
+		.filter(
+			(entry) =>
+				entry.isDirectory() &&
+				!entry.isSymbolicLink() &&
+				SKILL_ID_PATTERN.test(entry.name),
+		)
 		.map((entry) => entry.name)
 		.filter((skillId) => {
 			const manifestPath = path.join(skillsDir, skillId, 'SKILL.md');
-			return existsSync(manifestPath) && statSync(manifestPath).isFile();
+			return existsSync(manifestPath) && lstatSync(manifestPath).isFile();
 		})
 		.sort();
 }
@@ -82,12 +88,25 @@ function resolveDestinationDir(destinationDir: string | undefined): string {
 }
 
 function copyDirectoryRecursive(sourceDir: string, targetDir: string): number {
+	const sourceStats = lstatSync(sourceDir);
+	if (sourceStats.isSymbolicLink()) {
+		throw new Error(
+			`Skill source contains a symbolic link at "${sourceDir}", which is not allowed for security reasons.`,
+		);
+	}
 	mkdirSync(targetDir, { recursive: true });
 	let copiedFiles = 0;
 
 	for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
 		const sourcePath = path.join(sourceDir, entry.name);
 		const targetPath = path.join(targetDir, entry.name);
+		const sourcePathStats = lstatSync(sourcePath);
+
+		if (sourcePathStats.isSymbolicLink()) {
+			throw new Error(
+				`Skill source contains a symbolic link at "${sourcePath}", which is not allowed for security reasons.`,
+			);
+		}
 
 		if (entry.isDirectory()) {
 			copiedFiles += copyDirectoryRecursive(sourcePath, targetPath);
@@ -132,8 +151,18 @@ export function installSkill(
 	const rootDir = resolveSkillRoot(commandOptions.rootDir);
 	const normalizedSkillId = resolveSkillId(skillId, rootDir);
 	const sourcePath = path.join(rootDir, 'skill', normalizedSkillId);
-	const skillManifestPath = path.join(sourcePath, 'SKILL.md');
+	if (!existsSync(sourcePath)) {
+		throw new Error(
+			`Skill "${normalizedSkillId}" was not found under "${path.join(rootDir, 'skill')}".`,
+		);
+	}
+	if (lstatSync(sourcePath).isSymbolicLink()) {
+		throw new Error(
+			`Skill "${normalizedSkillId}" at "${sourcePath}" is a symbolic link, which is not allowed for security reasons.`,
+		);
+	}
 
+	const skillManifestPath = path.join(sourcePath, 'SKILL.md');
 	if (!existsSync(skillManifestPath) || !statSync(skillManifestPath).isFile()) {
 		throw new Error(
 			`Skill "${normalizedSkillId}" was not found under "${path.join(rootDir, 'skill')}".`,

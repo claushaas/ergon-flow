@@ -1,11 +1,7 @@
 import { hostname as resolveHostname } from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type {
-	ErrorCode,
-	StepDefinition,
-	WorkflowTemplate,
-} from '@claushaas/ergon-shared';
+import type { StepDefinition, WorkflowTemplate } from '@claushaas/ergon-shared';
 import {
 	appendEvent,
 	claimNextRun,
@@ -20,6 +16,7 @@ import {
 	type WorkflowRunRow,
 } from '@claushaas/ergon-storage';
 import type { ExecutorRegistry } from './executors/index.js';
+import { getDefaultFailureCodeForStep } from './failureCodes.js';
 import { executeRun } from './runner.js';
 import { loadAndValidateTemplateFromFile } from './templating/index.js';
 import { assertWorkflowTemplateIdentity } from './workflowIdentity.js';
@@ -116,32 +113,6 @@ function createWorkerActor(workerId: string): string {
 	return `worker:${workerId}`;
 }
 
-function assertUnreachable(value: never): never {
-	throw new Error(`Unexpected step kind: ${JSON.stringify(value)}`);
-}
-
-function getFailureCodeForStep(step: StepDefinition): ErrorCode {
-	switch (step.kind) {
-		case 'agent':
-		case 'notify':
-			return 'provider_error';
-		case 'artifact':
-			return 'artifact_failed';
-		case 'condition':
-			return 'condition_failed';
-		case 'delay':
-			return 'delay_failed';
-		case 'exec':
-			return 'exec_failed';
-		case 'manual':
-			return 'manual_rejected';
-		default: {
-			assertUnreachable(step);
-			return 'schema_invalid';
-		}
-	}
-}
-
 function canRetryRecoveredStep(step: StepDefinition, attempt: number): boolean {
 	const retry = step.retry;
 	if (!retry) {
@@ -153,7 +124,7 @@ function canRetryRecoveredStep(step: StepDefinition, attempt: number): boolean {
 		return false;
 	}
 
-	const failureCode = getFailureCodeForStep(step);
+	const failureCode = getDefaultFailureCodeForStep(step);
 	if (!retry.on || retry.on.length === 0) {
 		return true;
 	}
@@ -225,7 +196,7 @@ function recoverExpiredLeaseStep(
 
 	const template = loadTemplateForRun(db, run, rootDir);
 	const step = getStepToRecover(template, run, runningStepRun.step_id);
-	const failureCode = getFailureCodeForStep(step);
+	const failureCode = getDefaultFailureCodeForStep(step);
 	const failureMessage = `Step "${step.id}" lost its lease while running`;
 	const failureDetail = {
 		reason: 'lease_expired',

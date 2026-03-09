@@ -62,8 +62,72 @@ interface RunSummaryArtifact {
 const DEFAULT_OPENCLAW_COMMAND = 'openclaw';
 const DEFAULT_OPENCLAW_ARGS = ['message', 'send'];
 
+function stripAnsiEscapeSequences(message: string): string {
+	let result = '';
+
+	for (let index = 0; index < message.length; index += 1) {
+		const code = message.charCodeAt(index);
+		if (code !== 0x1b && code !== 0x9b) {
+			result += message[index];
+			continue;
+		}
+
+		let cursor = index + 1;
+		if (cursor >= message.length) {
+			break;
+		}
+
+		const introducer = message[cursor];
+		if (introducer === '[') {
+			cursor += 1;
+			while (cursor < message.length) {
+				const currentCode = message.charCodeAt(cursor);
+				if (currentCode >= 0x40 && currentCode <= 0x7e) {
+					index = cursor;
+					break;
+				}
+				cursor += 1;
+			}
+			if (cursor >= message.length) {
+				break;
+			}
+			continue;
+		}
+
+		index = cursor;
+	}
+
+	return result;
+}
+
+function stripUnsafeControlCharacters(message: string): string {
+	let result = '';
+
+	for (const character of message) {
+		const code = character.charCodeAt(0);
+		if (character === '\n' || character === '\t') {
+			result += character;
+			continue;
+		}
+		if (
+			(code >= 0x00 && code <= 0x08) ||
+			(code >= 0x0b && code <= 0x1f) ||
+			(code >= 0x7f && code <= 0x9f)
+		) {
+			continue;
+		}
+		result += character;
+	}
+
+	return result;
+}
+
 function sanitizeLoggedMessage(message: string): string {
-	return message.replaceAll('\u0000', '');
+	return stripUnsafeControlCharacters(
+		stripAnsiEscapeSequences(message)
+			.replaceAll('\r\n', '\n')
+			.replaceAll('\r', '\n'),
+	);
 }
 
 function buildRunSummaryArtifact(

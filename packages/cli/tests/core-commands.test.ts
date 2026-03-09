@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -197,6 +198,46 @@ steps:
 				'utf8',
 			),
 		).toBe('# Guide\n');
+	});
+
+	it('rejects top-level skill directories that are symbolic links', () => {
+		const rootDir = createTempRoot();
+		const externalSkillDir = path.join(rootDir, 'external-skill');
+		mkdirSync(externalSkillDir, { recursive: true });
+		writeFileSync(
+			path.join(externalSkillDir, 'SKILL.md'),
+			'---\nname: ergon-flow-expert\ndescription: test skill\n---\n',
+			'utf8',
+		);
+		mkdirSync(path.join(rootDir, 'skill'), { recursive: true });
+		symlinkSync(
+			externalSkillDir,
+			path.join(rootDir, 'skill', 'ergon-flow-expert'),
+		);
+
+		expect(() => installSkill('ergon-flow-expert', { rootDir })).toThrow(
+			'is a symbolic link',
+		);
+	});
+
+	it('rejects symbolic links found inside a skill directory', () => {
+		const rootDir = createTempRoot();
+		const destinationDir = path.join(rootDir, 'installed-skills');
+		writeSkill(rootDir, 'ergon-flow-expert');
+		symlinkSync(
+			path.join(rootDir, 'README.md'),
+			path.join(
+				rootDir,
+				'skill',
+				'ergon-flow-expert',
+				'references',
+				'linked.md',
+			),
+		);
+
+		expect(() =>
+			installSkill('ergon-flow-expert', { destinationDir, rootDir }),
+		).toThrow('contains a symbolic link');
 	});
 
 	it('syncs workflows into storage and lists them', () => {
