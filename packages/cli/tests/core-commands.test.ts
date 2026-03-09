@@ -184,29 +184,38 @@ steps:
 
 	it('installs a skill from an explicit --root into an explicit destination path', () => {
 		const rootDir = createTempRoot();
-		const destinationDir = path.join(rootDir, '.codex', 'skills');
+		const destinationDir = '.codex/skills';
 		writeSkill(rootDir, 'ergon-flow-expert');
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			const result = installSkill('ergon-flow-expert', {
+				destinationDir,
+				rootDir,
+			});
 
-		const result = installSkill('ergon-flow-expert', {
-			destinationDir,
-			rootDir,
-		});
-
-		expect(realpathSync(result.destinationPath)).toBe(
-			realpathSync(path.join(destinationDir, 'ergon-flow-expert')),
-		);
-		expect(
-			readFileSync(
-				path.join(result.destinationPath, 'references', 'guide.md'),
-				'utf8',
-			),
-		).toBe('# Guide\n');
+			expect(realpathSync(result.destinationPath)).toBe(
+				realpathSync(path.join(rootDir, destinationDir, 'ergon-flow-expert')),
+			);
+			expect(
+				readFileSync(
+					path.join(result.destinationPath, 'references', 'guide.md'),
+					'utf8',
+				),
+			).toBe('# Guide\n');
+		} finally {
+			process.chdir(previousCwd);
+		}
 	});
 
 	it('overwrites an existing installed skill at the destination path', () => {
 		const rootDir = createTempRoot();
-		const destinationDir = path.join(rootDir, '.codex', 'skills');
-		const destinationPath = path.join(destinationDir, 'ergon-flow-expert');
+		const destinationDir = '.codex/skills';
+		const destinationPath = path.join(
+			rootDir,
+			destinationDir,
+			'ergon-flow-expert',
+		);
 		writeSkill(rootDir, 'ergon-flow-expert');
 		mkdirSync(path.join(destinationPath, 'references'), { recursive: true });
 		writeFileSync(
@@ -219,20 +228,43 @@ steps:
 			'# Old Guide\n',
 			'utf8',
 		);
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			const result = installSkill('ergon-flow-expert', {
+				destinationDir,
+				rootDir,
+			});
 
-		const result = installSkill('ergon-flow-expert', {
-			destinationDir,
-			rootDir,
-		});
+			expect(realpathSync(result.destinationPath)).toBe(
+				realpathSync(destinationPath),
+			);
+			expect(existsSync(path.join(destinationPath, 'stale.txt'))).toBe(false);
+			expect(
+				readFileSync(
+					path.join(destinationPath, 'references', 'guide.md'),
+					'utf8',
+				),
+			).toBe('# Guide\n');
+		} finally {
+			process.chdir(previousCwd);
+		}
+	});
 
-		expect(result.destinationPath).toBe(destinationPath);
-		expect(existsSync(path.join(destinationPath, 'stale.txt'))).toBe(false);
-		expect(
-			readFileSync(
-				path.join(destinationPath, 'references', 'guide.md'),
-				'utf8',
-			),
-		).toBe('# Guide\n');
+	it('rejects skill installation paths outside the current workspace', () => {
+		const rootDir = createTempRoot();
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			expect(() =>
+				installSkill(undefined, { destinationDir: '../outside' }),
+			).toThrow('Invalid skill install path: path escapes the workspace root');
+			expect(() =>
+				installSkill(undefined, { destinationDir: '/tmp/skills' }),
+			).toThrow('Invalid skill install path: absolute paths are not allowed');
+		} finally {
+			process.chdir(previousCwd);
+		}
 	});
 
 	it('rejects top-level skill directories that are symbolic links', () => {
@@ -257,7 +289,7 @@ steps:
 
 	it('rejects symbolic links found inside a skill directory', () => {
 		const rootDir = createTempRoot();
-		const destinationDir = path.join(rootDir, 'installed-skills');
+		const destinationDir = 'installed-skills';
 		writeSkill(rootDir, 'ergon-flow-expert');
 		symlinkSync(
 			path.join(rootDir, 'README.md'),
@@ -269,10 +301,15 @@ steps:
 				'linked.md',
 			),
 		);
-
-		expect(() =>
-			installSkill('ergon-flow-expert', { destinationDir, rootDir }),
-		).toThrow('contains a symbolic link');
+		const previousCwd = process.cwd();
+		process.chdir(rootDir);
+		try {
+			expect(() =>
+				installSkill('ergon-flow-expert', { destinationDir, rootDir }),
+			).toThrow('contains a symbolic link');
+		} finally {
+			process.chdir(previousCwd);
+		}
 	});
 
 	it('syncs workflows into storage and lists them', () => {

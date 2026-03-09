@@ -10,6 +10,7 @@ import {
 import path from 'node:path';
 import { printJson } from '../output/format.js';
 import { getEmbeddedSkillsDir } from '../project.js';
+import { resolvePathWithinBase } from '../utils.js';
 
 const SKILL_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 
@@ -70,7 +71,11 @@ function resolveDestinationDir(destinationDir: string | undefined): string {
 		return path.resolve(process.cwd(), 'skills');
 	}
 
-	return path.resolve(destinationDir);
+	return resolvePathWithinBase(
+		process.cwd(),
+		destinationDir,
+		'skill install path',
+	);
 }
 
 function copyDirectoryRecursive(sourceDir: string, targetDir: string): number {
