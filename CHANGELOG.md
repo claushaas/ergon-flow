@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [0.2.1] - 2026-03-09
+
+### Fixed
+
+- `ergon skill install` now installs the bundled CLI skill by default, so it
+  works in third-party repositories without requiring a local `skill/`
+  directory
+- skill installation source validation now rejects symbolic links in the skill
+  tree before copying files
+- stdout notifications now strip ANSI escape sequences and unsafe control
+  characters before logging
+- storage step kind types now align with the shared runtime contract, removing
+  the cast in the engine and centralizing failure-code mapping
+
 ## [0.2.0] - 2026-03-08
 
 ### Added
