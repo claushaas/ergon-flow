@@ -133,7 +133,7 @@ Example:
 - id: codex.summary
   kind: exec
   env:
-    CODEX_JSON: "{{ artifacts.codex.plan.stdout }}"
+    CODEX_JSON: "{{ artifacts.codex.plan }}"
   command: |
     set -euo pipefail
     node -e '

@@ -327,7 +327,7 @@ Prefer this pattern:
 - id: implementation.pr_title
   kind: exec
   env:
-    IMPLEMENTATION_JSON: "{{ artifacts.implement.stdout }}"
+    IMPLEMENTATION_JSON: "{{ artifacts.implementation }}"
   command: |
     set -euo pipefail
     node -e '/* parse and emit pr_title */'
