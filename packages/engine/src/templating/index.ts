@@ -53,8 +53,10 @@ export interface TemplateInterpolationContext {
 }
 
 export interface StepRequestPayload {
+	cwd?: string;
 	command?: string;
 	message?: string;
+	model?: string;
 	prompt?: string;
 }
 
@@ -850,6 +852,24 @@ export function validateTemplate(
 		const stepPath = `steps[${index}]`;
 		switch (step.kind) {
 			case 'agent':
+				if (step.model) {
+					validateInterpolatedValue(
+						errors,
+						step.model,
+						`${stepPath}.model`,
+						availableInputs,
+						availableArtifacts,
+					);
+				}
+				if (step.cwd) {
+					validateInterpolatedValue(
+						errors,
+						step.cwd,
+						`${stepPath}.cwd`,
+						availableInputs,
+						availableArtifacts,
+					);
+				}
 				if (step.prompt) {
 					validateInterpolatedValue(
 						errors,
@@ -1189,6 +1209,12 @@ export function renderStepRequestPayload(
 	switch (step.kind) {
 		case 'agent':
 			return {
+				cwd: step.cwd
+					? interpolateTemplateString(step.cwd, context, 'text')
+					: undefined,
+				model: step.model
+					? interpolateTemplateString(step.model, context, 'text')
+					: undefined,
 				prompt: step.prompt
 					? interpolateTemplateString(step.prompt, context, 'prompt')
 					: undefined,

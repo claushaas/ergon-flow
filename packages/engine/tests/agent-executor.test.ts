@@ -45,9 +45,10 @@ describe('AgentExecutor (E2)', () => {
 			resolveClient: () => client,
 		});
 		const step: AgentStepDefinition = {
+			cwd: '{{ inputs.repo_path }}',
 			id: 'analyze',
 			kind: 'agent',
-			model: 'deepseek/deepseek-v3.2',
+			model: '{{ inputs.model }}',
 			prompt: 'Task {{ inputs.task }} / Existing {{ artifacts.repo.summary }}',
 			provider: 'openrouter',
 		};
@@ -56,6 +57,8 @@ describe('AgentExecutor (E2)', () => {
 				repo: { summary: 'parser' },
 			},
 			inputs: {
+				model: 'deepseek/deepseek-v3.2',
+				repo_path: '/tmp/repo',
 				task: 'refactor',
 			},
 			run: {
@@ -70,6 +73,7 @@ describe('AgentExecutor (E2)', () => {
 		const result = await executor.execute(step, context);
 
 		expect(runSpy).toHaveBeenCalledWith({
+			cwd: '/tmp/repo',
 			model: 'deepseek/deepseek-v3.2',
 			prompt: 'Task "refactor" / Existing "parser"',
 			provider: 'openrouter',
@@ -88,6 +92,7 @@ describe('AgentExecutor (E2)', () => {
 				attempt: 2,
 				provider: 'openrouter',
 				request: {
+					cwd: '/tmp/repo',
 					model: 'deepseek/deepseek-v3.2',
 					prompt: 'Task "refactor" / Existing "parser"',
 					provider: 'openrouter',

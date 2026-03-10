@@ -53,6 +53,7 @@ export interface CliSpawnResult {
 export type CliSpawn = (options: {
 	args: string[];
 	command: string;
+	cwd?: string;
 	env?: Record<string, string>;
 	input: string;
 	signal?: AbortSignal;
@@ -316,12 +317,14 @@ function formatMessagesAsTranscript(messages: ChatMessage[]): string {
 async function defaultSpawn(options: {
 	args: string[];
 	command: string;
+	cwd?: string;
 	env?: Record<string, string>;
 	input: string;
 	signal?: AbortSignal;
 }): Promise<CliSpawnResult> {
 	return await new Promise<CliSpawnResult>((resolve, reject) => {
 		const child = nodeSpawn(options.command, options.args, {
+			cwd: options.cwd,
 			env: options.env ? { ...process.env, ...options.env } : process.env,
 			stdio: 'pipe',
 		});
@@ -534,6 +537,7 @@ abstract class CliAgentClientBase implements ExecutionClient {
 		const result = await this.spawnImpl({
 			args,
 			command: this.command,
+			cwd: request.cwd,
 			env: this.env,
 			input: this.resolveInput(request),
 			signal: request.signal,
@@ -579,6 +583,24 @@ abstract class CliAgentClientBase implements ExecutionClient {
 	}
 }
 
+function ensureSubcommand(args: string[], subcommand: string): string[] {
+	if (args.includes(subcommand)) {
+		return args;
+	}
+	return [subcommand, ...args];
+}
+
+function ensureFlag(
+	args: string[],
+	longFlag: string,
+	shortFlag?: string,
+): string[] {
+	if (args.includes(longFlag) || (shortFlag && args.includes(shortFlag))) {
+		return args;
+	}
+	return [longFlag, ...args];
+}
+
 export class CodexAgentClient extends CliAgentClientBase {
 	public readonly provider = 'codex' as const;
 
@@ -587,7 +609,7 @@ export class CodexAgentClient extends CliAgentClientBase {
 	}
 
 	protected override resolveArgs(request: ClientRequest): string[] {
-		const args = super.resolveArgs(request);
+		const args = ensureSubcommand(super.resolveArgs(request), 'exec');
 		if (!request.model) {
 			return args;
 		}
@@ -606,7 +628,7 @@ export class ClaudeCodeAgentClient extends CliAgentClientBase {
 	}
 
 	protected override resolveArgs(request: ClientRequest): string[] {
-		const args = super.resolveArgs(request);
+		const args = ensureFlag(super.resolveArgs(request), '--print', '-p');
 		if (!request.model) {
 			return args;
 		}
@@ -630,6 +652,10 @@ export class OpenClawAgentClient extends CliAgentClientBase {
 
 	public constructor(options: CliClientOptions = {}) {
 		super('openclaw', 'openclaw', ['agent'], options);
+	}
+
+	protected override resolveArgs(request: ClientRequest): string[] {
+		return ensureSubcommand(super.resolveArgs(request), 'agent');
 	}
 }
 

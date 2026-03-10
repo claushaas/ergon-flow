@@ -72,7 +72,8 @@ export class AgentExecutor implements Executor<AgentStepDefinition> {
 
 		const client = this.resolveClient(step.provider);
 		const request = {
-			model: step.model,
+			cwd: payload.cwd,
+			model: payload.model,
 			prompt: payload.prompt,
 			provider: step.provider,
 			signal: context.signal,

@@ -44,6 +44,7 @@ interface BaseStepDefinition {
 
 export interface AgentStepDefinition extends BaseStepDefinition {
 	agent?: string;
+	cwd?: string;
 	kind: 'agent';
 	model?: string;
 	output?: AgentStepOutput;
