@@ -163,7 +163,7 @@ own `step_runs` row and attempt-local artifact files.
 If a worker lease expires while a run is `running`, another worker may reclaim
 the run.
 
-Recovery behavior in `v0.2.2`:
+Recovery behavior in `v0.2.3`:
 
 - the stale in-flight step is marked failed
 - the engine decides whether that step is retryable
@@ -229,7 +229,7 @@ Bootstrap and root-discovery rules:
 - `workflow list`, `run`, `run status`, `worker start`, `approve` and `cancel`
   require `ergon init`
 
-## Explicit Non-Goals for v0.2.2
+## Explicit Non-Goals for v0.2.3
 
 These are out of scope in the current release:
 

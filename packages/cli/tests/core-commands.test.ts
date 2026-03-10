@@ -622,10 +622,10 @@ steps:
 		expect(result.configPath).toBe(configPath);
 		expect(result.libraryMode).toBe('managed');
 		expect(parsedConfig.format_version).toBe(1);
-		expect(parsedConfig.cli_version).toBe('0.2.2');
+		expect(parsedConfig.cli_version).toBe('0.2.3');
 		expect(parsedConfig.env_file).toBe('.env');
 		expect(parsedConfig.library_mode).toBe('managed');
-		expect(parsedConfig.library_version).toBe('0.2.2');
+		expect(parsedConfig.library_version).toBe('0.2.3');
 		expect(parsedConfig.initialized_at).toEqual(expect.any(String));
 		expect(Object.keys(parsedConfig.library_files)).toContain(
 			'workflows/code.refactor.yaml',
@@ -702,7 +702,7 @@ steps:
 		expect(summary.updated).toContain('workflows/code.refactor.yaml');
 		expect(summary.libraryMode).toBe('managed');
 		expect(readFileSync(workflowPath, 'utf8')).not.toBe('# locally modified\n');
-		expect(parsedConfig.library_version).toBe('0.2.2');
+		expect(parsedConfig.library_version).toBe('0.2.3');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);
@@ -735,7 +735,7 @@ steps:
 		expect(summary.libraryMode).toBe('detached');
 		expect(parsedConfig.library_mode).toBe('detached');
 		expect(parsedConfig.library_files).toEqual({});
-		expect(parsedConfig.library_version).toBe('0.2.2');
+		expect(parsedConfig.library_version).toBe('0.2.3');
 		expect(readFileSync(workflowPath, 'utf8')).toBe(beforeDetach);
 	});
 
@@ -749,7 +749,7 @@ steps:
 		expect(summary.libraryMode).toBe('managed');
 		expect(summary.added).toContain('workflows/code.refactor.yaml');
 		expect(parsedConfig.library_mode).toBe('managed');
-		expect(parsedConfig.library_version).toBe('0.2.2');
+		expect(parsedConfig.library_version).toBe('0.2.3');
 		expect(parsedConfig.library_files['workflows/code.refactor.yaml']).toEqual(
 			expect.any(String),
 		);

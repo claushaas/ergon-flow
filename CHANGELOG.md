@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog.
 
+## [0.2.3] - 2026-03-09
+
+### Fixed
+
+- `agent` steps now support explicit `cwd` for local CLI providers that need
+  repository context
+- local CLI providers now preserve their non-interactive defaults even when
+  custom args are configured
+- built-in workflows and the bundled Ergon Flow skill now reflect the safer
+  local CLI provider contract
+
 ## [0.2.2] - 2026-03-09
 
 ### Fixed
