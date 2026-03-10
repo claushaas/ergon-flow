@@ -19,7 +19,7 @@ The runtime is designed around auditability:
 - every artifact is stored on disk and indexed in SQLite
 - every significant transition is appended to `events`
 
-## What v0.2.2 Includes
+## What v0.2.3 Includes
 
 The current release scope is pragmatic and explicit:
 
@@ -51,20 +51,6 @@ Supported providers:
 - `codex`
 - `claude-code`
 - `openclaw`
-
-## What v0.2.2 Does Not Include
-
-These repository assets exist, but they are not enforced by the runtime yet:
-
-- `docs/ideas/agents/`
-- `docs/ideas/schemas/`
-
-The current runtime does not load agent profiles from `docs/ideas/agents` and
-does not validate agent artifacts against `docs/ideas/schemas` during
-execution.
-
-The current engine is also intentionally limited to sequential execution. It is
-not a parallel DAG scheduler.
 
 ## Quickstart
 
@@ -472,7 +458,7 @@ The repository treats these documents as source of truth:
 
 ## Release Flow
 
-Public releases are cut from `main` using Git tags such as `v0.2.2`.
+Public releases are cut from `main` using Git tags such as `v0.2.3`.
 
 Before tagging a release:
 

@@ -31,6 +31,7 @@ describe('CLI agent clients (D3)', () => {
 		expect(spawnMock).toHaveBeenCalledWith({
 			args: ['exec', '--model', 'gpt-5-codex'],
 			command: 'codex',
+			cwd: undefined,
 			env: { CODEX_HOME: '/tmp/codex' },
 			input: 'Review this patch',
 			signal: controller.signal,
@@ -58,6 +59,35 @@ describe('CLI agent clients (D3)', () => {
 		expect(spawnMock).toHaveBeenCalledWith({
 			args: ['exec', '--model', 'configured-model'],
 			command: 'codex',
+			cwd: undefined,
+			env: undefined,
+			input: 'Review this patch',
+			signal: undefined,
+		});
+	});
+
+	it('prepends the non-interactive exec subcommand when configured Codex args omit it', async () => {
+		const spawnMock = vi.fn().mockResolvedValue({
+			code: 0,
+			signal: null,
+			stderr: '',
+			stdout: 'codex-result\n',
+		});
+		const client = new CodexAgentClient({
+			args: ['-m', 'configured-model', '-s', 'danger-full-access'],
+			spawn: spawnMock,
+		});
+
+		await client.run({
+			cwd: '/repo',
+			prompt: 'Review this patch',
+			provider: 'codex',
+		});
+
+		expect(spawnMock).toHaveBeenCalledWith({
+			args: ['exec', '-m', 'configured-model', '-s', 'danger-full-access'],
+			command: 'codex',
+			cwd: '/repo',
 			env: undefined,
 			input: 'Review this patch',
 			signal: undefined,
@@ -89,6 +119,7 @@ describe('CLI agent clients (D3)', () => {
 		expect(spawnMock).toHaveBeenCalledWith({
 			args: ['--print', '--model', 'sonnet'],
 			command: 'claude',
+			cwd: undefined,
 			env: undefined,
 			input: 'SYSTEM:\nYou are a reviewer.\n\nUSER:\nReview this patch',
 			signal: controller.signal,
@@ -116,6 +147,34 @@ describe('CLI agent clients (D3)', () => {
 		expect(spawnMock).toHaveBeenCalledWith({
 			args: ['--print', '--model', 'configured-sonnet'],
 			command: 'claude',
+			cwd: undefined,
+			env: undefined,
+			input: 'Review this patch',
+			signal: undefined,
+		});
+	});
+
+	it('prepends --print when configured Claude args omit it', async () => {
+		const spawnMock = vi.fn().mockResolvedValue({
+			code: 0,
+			signal: null,
+			stderr: '',
+			stdout: 'claude-result',
+		});
+		const client = new ClaudeCodeAgentClient({
+			args: ['--model', 'configured-sonnet'],
+			spawn: spawnMock,
+		});
+
+		await client.run({
+			prompt: 'Review this patch',
+			provider: 'claude-code',
+		});
+
+		expect(spawnMock).toHaveBeenCalledWith({
+			args: ['--print', '--model', 'configured-sonnet'],
+			command: 'claude',
+			cwd: undefined,
 			env: undefined,
 			input: 'Review this patch',
 			signal: undefined,
@@ -144,9 +203,37 @@ describe('CLI agent clients (D3)', () => {
 		expect(spawnMock).toHaveBeenCalledWith({
 			args: ['agent'],
 			command: 'openclaw',
+			cwd: undefined,
 			env: undefined,
 			input: 'Plan this task',
 			signal: controller.signal,
+		});
+	});
+
+	it('prepends the agent subcommand when configured OpenClaw args omit it', async () => {
+		const spawnMock = vi.fn().mockResolvedValue({
+			code: 0,
+			signal: null,
+			stderr: '',
+			stdout: 'openclaw-result',
+		});
+		const client = new OpenClawAgentClient({
+			args: ['--foo'],
+			spawn: spawnMock,
+		});
+
+		await client.run({
+			prompt: 'Plan this task',
+			provider: 'openclaw',
+		});
+
+		expect(spawnMock).toHaveBeenCalledWith({
+			args: ['agent', '--foo'],
+			command: 'openclaw',
+			cwd: undefined,
+			env: undefined,
+			input: 'Plan this task',
+			signal: undefined,
 		});
 	});
 

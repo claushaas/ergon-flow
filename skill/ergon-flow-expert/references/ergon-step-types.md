@@ -18,6 +18,8 @@ Current step kinds:
 
 Use `agent` to ask a provider to generate text or JSON-like output.
 
+This is the default step kind for model interaction. If a workflow step is conceptually "ask an agent to analyze, plan, review, or generate content", model it as `kind: agent` unless the current runtime forces a narrower workaround.
+
 ### When To Use
 
 - analysis
@@ -41,6 +43,7 @@ Use `agent` to ask a provider to generate text or JSON-like output.
 ### Optional Fields
 
 - `model`
+- `cwd`
 - `agent`
 - `prompt`
 - `output`
@@ -81,12 +84,69 @@ Remote vs local:
 Practical caution:
 
 - local CLI providers may mutate the workspace directly, outside a later `exec` step
+- `agent.cwd` is now supported, but it primarily affects local CLI providers
+- remote providers still behave like prompt -> response adapters and do not use repository cwd the same way local CLIs do
+
+Conservative rule:
+
+- default to `kind: agent` for model calls
+- if a local CLI provider must inspect a specific repository, set `cwd` explicitly instead of relying on the worker process directory
+- current Ergon Flow preserves the non-interactive defaults for local CLI providers even when custom args are configured:
+  - `codex` keeps `exec`
+  - `claude-code` keeps `--print`
+  - `openclaw` keeps `agent`
+- still prefer `exec` for deterministic Git, file, and publication side effects
 
 ### Common Pitfalls
 
 - assuming the provider output will always have a specific JSON shape without validating the prompt contract
+- declaring `output.type: json` and then immediately referencing nested fields without proving the provider actually returned parseable JSON
 - referencing fields that do not exist, such as `{{ artifacts.review.summary }}` when the artifact is really plain text
 - hiding repo mutations inside a local CLI provider when a later `exec` step would be clearer
+- packing multiple external side effects into one agent step, such as "change code, run tests, commit, push, reply to reviews, and resolve threads"
+
+### Safer Pattern For Local CLI Providers
+
+If a local CLI provider must work inside a repository and the step is still fundamentally agentic, prefer this pattern:
+
+1. `agent` with explicit `cwd` handles the model reasoning
+2. a later `exec` step parses or validates the returned text when structure matters
+3. later `exec` steps perform deterministic Git, file, or GitHub operations
+
+Example:
+
+```yaml
+- id: codex.plan
+  kind: agent
+  cwd: "{{ inputs.repo_path }}"
+  provider: codex
+  model: "{{ inputs.codex_model }}"
+  output:
+    name: codex.plan
+    type: text
+  prompt: |
+    Return strict JSON with exactly these keys:
+    - summary
+    - pr_title
+    - pr_body
+
+- id: codex.summary
+  kind: exec
+  env:
+    CODEX_JSON: "{{ artifacts.codex.plan }}"
+  command: |
+    set -euo pipefail
+    node -e '
+      const raw = (process.env.CODEX_JSON ?? "").trim();
+      const match = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+      const normalized = (match ? match[1] : raw).trim();
+      const parsed = JSON.parse(normalized);
+      if (typeof parsed.summary !== "string") {
+        throw new Error("summary is required");
+      }
+      process.stdout.write(parsed.summary);
+    '
+```
 
 ### Example
 
@@ -107,6 +167,7 @@ Practical caution:
 - `agent` creates a plan
 - `artifact` extracts or renames fields from structured output
 - `exec` applies deterministic changes based on the plan
+- for local CLI providers, keep `kind: agent` as the default mental model, set `cwd` explicitly when repository context matters, and use later `exec` steps when deterministic parsing or side effects are required
 
 ## `exec`
 

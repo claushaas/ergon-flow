@@ -8,6 +8,7 @@ export interface ChatMessage {
 }
 
 export interface ClientRequest {
+	cwd?: string;
 	json_mode?: boolean;
 	messages?: ChatMessage[];
 	model?: string;

@@ -145,6 +145,7 @@ Required fields:
 Optional fields:
 
 - `model`
+- `cwd`
 - `agent`
 - `prompt`
 - `output`
@@ -169,6 +170,12 @@ Supported output types:
 - `json`
 - `plan`
 - `text`
+
+Notes:
+
+- `model` is interpolated before request dispatch
+- `cwd` is interpolated before request dispatch
+- `cwd` is primarily relevant for local CLI providers such as `codex`, `claude-code`, and `openclaw`
 
 ### `exec`
 
@@ -325,7 +332,7 @@ The loader rejects templates that have:
 
 ## Current Limitations
 
-These are deliberate in `v0.2.2`:
+These are deliberate in `v0.2.3`:
 
 - no `steps.*` interpolation
 - no parallel DAG scheduling

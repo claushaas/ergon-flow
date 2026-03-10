@@ -44,6 +44,7 @@ Conservative guidance:
 
 - keep `id` stable
 - bump `version` only when you are intentionally changing the workflow contract
+- once a workflow `id@version` is registered in a project database, changing the YAML without bumping `version` will cause scheduling to fail because registered workflow versions are immutable
 
 ## `inputs`
 
@@ -102,6 +103,13 @@ Each step supports these common fields:
 - `depends_on`
 - `retry`
 - `timeout_ms`
+
+Modeling rule:
+
+- if a step is semantically an agent interaction, use `kind: agent` by default
+- do not rewrite agent work as `exec` just because a local CLI exists
+- if a local CLI provider must run in a specific repository context, use `agent.cwd` explicitly
+- use `exec` only when the step is no longer primarily agentic, or when you need deterministic side effects such as Git commands, file writes, or post-processing
 
 ### `depends_on`
 
@@ -257,6 +265,73 @@ Examples:
 This is normal for `exec` artifacts.
 
 ## Current Contract for Agent Providers
+
+Use these rules conservatively:
+
+- remote providers such as `openrouter` and `ollama` are better suited for prompt -> response flows
+- local CLI providers such as `codex`, `claude-code`, and `openclaw` may have hidden workspace side effects
+- `agent` steps support `cwd`
+- `exec` steps do support `cwd`
+
+Practical implication:
+
+- if the model must act inside a specific repository, set `cwd` explicitly on the `agent` step
+- do not assume mentioning `{{ inputs.repo_path }}` in the prompt changes the working directory
+- custom args for local CLI providers do not need to re-state the non-interactive defaults in current Ergon Flow:
+  - `codex` keeps `exec`
+  - `claude-code` keeps `--print`
+  - `openclaw` keeps `agent`
+
+### JSON-Shaped Agent Output
+
+The runtime may parse returned text as JSON, but you should not assume that a provider will always return clean JSON just because the prompt asked for it.
+
+Conservative pattern:
+
+1. prompt for strict JSON
+2. capture the raw output
+3. normalize or parse it in a later `exec` step
+4. only then reference individual fields downstream
+
+Avoid this fragile pattern:
+
+```yaml
+- id: implement
+  kind: agent
+  provider: codex
+  output:
+    name: implementation
+    type: json
+
+- id: create_pr
+  kind: exec
+  env:
+    PR_TITLE: "{{ artifacts.implementation.pr_title }}"
+```
+
+Prefer this pattern:
+
+```yaml
+- id: implement
+  kind: agent
+  cwd: "{{ inputs.repo_path }}"
+  provider: codex
+  model: "{{ inputs.codex_model }}"
+  output:
+    name: implementation
+    type: text
+  prompt: |
+    Return strict JSON with exactly these keys:
+    - pr_title
+
+- id: implementation.pr_title
+  kind: exec
+  env:
+    IMPLEMENTATION_JSON: "{{ artifacts.implementation }}"
+  command: |
+    set -euo pipefail
+    node -e '/* parse and emit pr_title */'
+```
 
 An `agent` step must use one of the supported providers:
 

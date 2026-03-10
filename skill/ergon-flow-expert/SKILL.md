@@ -47,6 +47,12 @@ Follow this sequence.
    If a field, step kind, interpolation source, or CLI command is not supported by the current runtime, do not present it as available.
 6. Preserve determinism.
    Prefer explicit artifacts, clear step boundaries, deterministic `exec` steps for mutations, and minimal hidden side effects.
+7. Be extra conservative with local CLI providers.
+   For `codex`, `claude-code`, and `openclaw`, always set `cwd` explicitly when the task must operate inside a specific repository. Do not rely on prompt text alone to establish repository context.
+8. Treat agent JSON as untrusted until normalized.
+   Do not immediately build downstream steps around `artifacts.<agent>.<field>` unless the workflow explicitly normalizes or validates the returned text first.
+9. Keep the modeling intent clear.
+   If a step is conceptually "ask a model to reason or generate output", use `kind: agent` by default. Only invoke a model CLI from `exec` as a documented workaround for current runtime limitations, not as the normal pattern for agent work.
 
 ## Recommended Working Flow
 
@@ -83,3 +89,4 @@ Follow this sequence.
 - Differentiate clearly between supported behavior, current limitations, and future ideas.
 - Prefer examples that can actually run in the user repository.
 - Avoid hiding side effects inside agent steps when a later `exec` step would be more deterministic.
+- Default to `kind: agent` for model interaction; use `exec` for deterministic side effects, validation, parsing, Git operations, and file mutation around the agent step.

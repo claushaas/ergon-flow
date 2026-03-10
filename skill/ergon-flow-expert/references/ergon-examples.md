@@ -39,6 +39,13 @@ Best starting point for:
 - generated docs or notes
 - workflows where you want the model separated from the file write
 
+Important note:
+
+- this example uses a remote provider for the `agent` step
+- if you switch it to a local CLI provider such as `codex`, `claude-code`, or `openclaw`, set `cwd: "{{ inputs.repo_path }}"`
+- keep the step as `kind: agent` when it is fundamentally model interaction
+- use later `exec` steps for deterministic parsing, file writes, Git operations, and publication
+
 ### `workflow-manual-approval.yaml`
 
 Use when a human must approve the next phase.
@@ -139,6 +146,8 @@ When adapting the example assets:
 - keep step responsibilities narrow
 - only add `agent` where model reasoning is actually needed
 - prefer `exec` for deterministic file writes, tests, and repo mutations
+- if a local CLI provider must return structured data, parse and normalize it in a later `exec` step before referencing nested fields
+- if you change an existing workflow that has already been registered in a project, bump `workflow.version`
 
 ## Conservative Notes
 

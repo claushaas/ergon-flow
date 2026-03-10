@@ -49,6 +49,28 @@ Conservative fix:
 - reference only known fields
 - if needed, normalize upstream output with an `artifact` step
 - do not assume an agent returned structured JSON unless the prompt and result confirm it
+- for CLI providers, prefer an explicit parsing `exec` step before downstream field references
+
+## Workflow Version Is Immutable Once Registered
+
+Symptom:
+
+- `ergon run` fails before scheduling with a message like `Workflow "<id>"@<version> is immutable once registered`
+
+Likely cause:
+
+- the workflow YAML changed after that same `workflow.id` and `workflow.version` were already registered in the project database
+
+How to inspect:
+
+- inspect the workflow file in `.ergon/library/workflows/`
+- inspect the registered workflow rows if needed
+
+Conservative fix:
+
+- bump `workflow.version` in the YAML
+- schedule a new run against the new version
+- do not mutate a registered `id@version` in place
 
 ## Run Stuck In `waiting_manual`
 
@@ -143,6 +165,52 @@ Conservative fix:
 - point the config to the right executable
 - prefer a remote provider if local CLI availability is uncertain
 
+## Local CLI Provider Acts In The Wrong Repository
+
+Symptom:
+
+- a `codex`, `claude-code`, or `openclaw` step seems to read or modify the wrong repository
+- the worker succeeds in one repo but behaves differently when started from another directory
+
+Likely cause:
+
+- the workflow omitted `cwd` on a repository-bound `agent` step
+- the local CLI inherited the worker process directory instead of the intended repository path
+
+How to inspect:
+
+- inspect the workflow step kind
+- if the step is `agent`, verify that it sets `cwd: "{{ inputs.repo_path }}"`
+- verify where `ergon worker start` was launched from
+
+Conservative fix:
+
+- keep the step as `kind: agent` if it is semantically model interaction
+- set `cwd: "{{ inputs.repo_path }}"`
+- do not rely on mentioning the repo path in the prompt text alone
+
+## Local CLI Provider Falls Back To Interactive Mode
+
+Symptom:
+
+- a `codex`, `claude-code`, or `openclaw` step hangs, prompts unexpectedly, or errors because it is running interactively
+
+Likely cause:
+
+- custom CLI args removed the provider's non-interactive defaults in an older Ergon Flow build
+- the installed CLI predates the runtime fix that preserves non-interactive defaults
+
+How to inspect:
+
+- inspect the installed `ergon --version`
+- verify the provider command works non-interactively in the shell
+- inspect local environment overrides such as `CODEX_ARGS`, `CLAUDE_CODE_ARGS`, and `OPENCLAW_ARGS`
+
+Conservative fix:
+
+- update Ergon Flow to a build that preserves non-interactive defaults for local CLI providers
+- keep custom args focused on model or sandbox options, not on replacing the provider subcommand entirely
+
 ## Lease Expiry Or Claim Loss
 
 Symptom:
@@ -211,6 +279,7 @@ Conservative fix:
 - verify the exact upstream artifact names
 - ensure the upstream step can succeed on that path
 - do not assume `output_json` implies an artifact exists
+- remember that `exec` creates `<step_id>.stdout`, `<step_id>.stderr`, and `<step_id>.result`; those are often safer downstream contracts than free-form agent JSON
 
 ## Docs vs Implementation Mismatch
 
